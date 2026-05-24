@@ -4226,19 +4226,7 @@ class TelegramBotController extends Controller
 
         $text = "فیلد `{$fields[$key]['label']}` با موفقیت ویرایش شد.";
 
-        $keyboard[] = [
-            [
-                'text' => '📂 بازگشت',
-                'callback_data' => "type=adminPanelDetail|id={$id}",
-            ]
-        ];
-
-        $keyboard[] = [
-            [
-                'text' => '🏠 منو اصلی',
-                'callback_data' => 'type=admin-home'
-            ]
-        ];
+        $keyboard[] = $this->adminFooterButtons("type=adminPanelDetail|id={$id}");
 
         $data = [
             'chat_id' => $this->chatId,
