@@ -47,9 +47,6 @@ class TelegramBotController extends Controller
     public function __construct(Request $request)
     {
         $data = $request->all();
-        $telData = new TelegramData();
-        $telData->data = json_encode($data);
-        $telData->save();
 
 
         $this->token = env('TELEGRAM_BOT_TOKEN');
@@ -1966,19 +1963,17 @@ class TelegramBotController extends Controller
         $orderDetail = $preOrder->data;
 
         $plan = Plans::find($orderDetail['plan-id']);
-        $panel = Panels::where('country_id', $orderDetail['country-id'])->first();
+        $panel = Panels::where('country_id', $orderDetail['country-id'])->where('status',1)->first();
 
-        /*
-        |--------------------------------------------------------------------------
-        | Login to Panel
-        |--------------------------------------------------------------------------
-        */
+        $session['session'] = "";
+        if (!is_null($panel)){
+            $session = loginToSanaie([
+                'url' => $panel->url,
+                'username' => $panel->username,
+                'password' => $panel->password,
+            ]);
+        }
 
-        $session = loginToSanaie([
-            'url' => $panel->url,
-            'username' => $panel->username,
-            'password' => $panel->password,
-        ]);
         if (empty($session['session'])) {
 
             $targetUser->increment('balance', $payment->price);
