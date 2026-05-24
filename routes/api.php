@@ -1,0 +1,7 @@
+<?php
+use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Api\TelegramBotController;
+use App\Http\Controllers\DefaultController;
+
+Route::get('runDefaultValueForNewProject',[DefaultController::class,'runDefaultValueForNewProject']);
+Route::post('telegram-webhook',[TelegramBotController::class,'index']);
