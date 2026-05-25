@@ -36,123 +36,57 @@ if (!function_exists('loginToSanaie')) {
         }
 
 
-        $baseUrl = rtrim($data['url'], '/') . '/login';
+        $baseUrl = rtrim($data['url'], '/');
 
-        $ch = curl_init();
-
-        curl_setopt_array($ch, [
-            CURLOPT_URL => $baseUrl,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => http_build_query([
+        $response = Http::withOptions([
+            'verify' => false,
+            'curl' => [
+                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_SSL_VERIFYHOST => false,
+                CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+            ],
+        ])
+            ->timeout(60)
+            ->connectTimeout(20)
+            ->asForm()
+            ->post(rtrim($baseUrl, '/') . '/login', [
                 'username' => $data['username'],
                 'password' => $data['password'],
-            ]),
+            ]);
 
-            // مهم برای گرفتن کوکی
-            CURLOPT_HEADER => true,
-
-            // SSL bypass
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_SSL_VERIFYHOST => false,
-
-            // timeout
-            CURLOPT_TIMEOUT => 20,
-            CURLOPT_CONNECTTIMEOUT => 20,
-
-            CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/x-www-form-urlencoded',
-            ],
-        ]);
-
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $error = curl_error($ch);
-
-        $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
-
-        curl_close($ch);
-
-        /*
-        |--------------------------------------------------------------------------
-        | Parse response
-        |--------------------------------------------------------------------------
-        */
-
-        $header = substr($response, 0, $headerSize);
-        $body = substr($response, $headerSize);
-
-        /*
-        |--------------------------------------------------------------------------
-        | Extract cookies
-        |--------------------------------------------------------------------------
-        */
-
-        preg_match_all('/Set-Cookie:\s*([^;]*)/mi', $header, $matches);
-
-        $cookies = $matches[1] ?? [];
-
-        $sessionCookie = null;
-        $Data = [];
-
-        foreach ($cookies as $cookie) {
-
-            if (str_contains($cookie, 'session') || str_contains($cookie, '3x-ui')) {
-                $sessionCookie = $cookie;
-            }
-
-            $parts = explode('=', $cookie, 2);
-
-            $Data = [
-                'name' => $parts[0] ?? null,
-                'value' => $parts[1] ?? null,
-            ];
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Check login success
-        |--------------------------------------------------------------------------
-        */
-
-        if ($httpCode !== 200 || empty($sessionCookie)) {
+        if (!$response->successful()) {
             return [
                 'status' => false,
-                'message' => 'Login failed',
-                'http_code' => $httpCode,
-                'error' => $error,
-                'body' => $body,
+                'message' => 'Login request failed',
+                'http_code' => $response->status(),
             ];
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Save panel session
-        |--------------------------------------------------------------------------
-        */
+        // گرفتن کوکی‌ها (خیلی مهم در x-ui)
+        $cookies = $response->cookies();
+        $sessionCookie = null;
+        $Data = [];
+        foreach ($cookies as $cookie) {
 
-        $panel->detail = [
-            'session' => $sessionCookie,
-            'cookies' => $cookies,
-            'Domain' => parse_url($data['url'], PHP_URL_HOST),
-        ];
-
+            if (str_contains($cookie->getName(), 'session') || str_contains($cookie->getName(), '3x-ui')) {
+                $sessionCookie = $cookie->getName() . '=' . $cookie->getValue();
+            }
+            $Data = [
+                'Domain' => $cookie->getDomain(),
+                'Path' => $cookie->getPath(),
+                'Expires' => Carbon::createFromTimestamp($cookie->getExpires()),
+                'session' => $cookie->getName() . '=' . $cookie->getValue(),
+                'cookies' => $cookies,
+            ];
+        }
+        $panel->detail = $Data;
         $panel->save();
-
-        /*
-        |--------------------------------------------------------------------------
-        | Return result
-        |--------------------------------------------------------------------------
-        */
 
         return [
             'status' => true,
-            'session' => $sessionCookie,
             'cookies' => $cookies,
+            'session' => $sessionCookie,
             'raw' => $Data,
-            'http_code' => $httpCode,
         ];
     }
 }
