@@ -36,57 +36,123 @@ if (!function_exists('loginToSanaie')) {
         }
 
 
-        $baseUrl = rtrim($data['url'], '/');
+        $baseUrl = rtrim($data['url'], '/') . '/login';
 
-        $response = Http::withOptions([
-            'verify' => false,
-            'curl' => [
-                CURLOPT_SSL_VERIFYPEER => false,
-                CURLOPT_SSL_VERIFYHOST => false,
-                CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-            ],
-        ])
-            ->timeout(60)
-            ->connectTimeout(20)
-            ->asForm()
-            ->post(rtrim($baseUrl, '/') . '/login', [
+        $ch = curl_init();
+
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $baseUrl,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => http_build_query([
                 'username' => $data['username'],
                 'password' => $data['password'],
-            ]);
+            ]),
 
-        if (!$response->successful()) {
-            return [
-                'status' => false,
-                'message' => 'Login request failed',
-                'http_code' => $response->status(),
-            ];
-        }
+            // مهم برای گرفتن کوکی
+            CURLOPT_HEADER => true,
 
-        // گرفتن کوکی‌ها (خیلی مهم در x-ui)
-        $cookies = $response->cookies();
+            // SSL bypass
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => false,
+
+            // timeout
+            CURLOPT_TIMEOUT => 20,
+            CURLOPT_CONNECTTIMEOUT => 20,
+
+            CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/x-www-form-urlencoded',
+            ],
+        ]);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error = curl_error($ch);
+
+        $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+
+        curl_close($ch);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Parse response
+        |--------------------------------------------------------------------------
+        */
+
+        $header = substr($response, 0, $headerSize);
+        $body = substr($response, $headerSize);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Extract cookies
+        |--------------------------------------------------------------------------
+        */
+
+        preg_match_all('/Set-Cookie:\s*([^;]*)/mi', $header, $matches);
+
+        $cookies = $matches[1] ?? [];
+
         $sessionCookie = null;
         $Data = [];
+
         foreach ($cookies as $cookie) {
 
-            if (str_contains($cookie->getName(), 'session') || str_contains($cookie->getName(), '3x-ui')) {
-                $sessionCookie = $cookie->getName() . '=' . $cookie->getValue();
+            if (str_contains($cookie, 'session') || str_contains($cookie, '3x-ui')) {
+                $sessionCookie = $cookie;
             }
+
+            $parts = explode('=', $cookie, 2);
+
             $Data = [
-                'Domain' => $cookie->getDomain(),
-                'Path' => $cookie->getPath(),
-                'Expires' => Carbon::createFromTimestamp($cookie->getExpires()),
-                'session' => $cookie->getName() . '=' . $cookie->getValue(),
-                'cookies' => $cookies,
+                'name' => $parts[0] ?? null,
+                'value' => $parts[1] ?? null,
             ];
         }
-        $panel->detail = $Data;
+
+        /*
+        |--------------------------------------------------------------------------
+        | Check login success
+        |--------------------------------------------------------------------------
+        */
+
+        if ($httpCode !== 200 || empty($sessionCookie)) {
+            return [
+                'status' => false,
+                'message' => 'Login failed',
+                'http_code' => $httpCode,
+                'error' => $error,
+                'body' => $body,
+            ];
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Save panel session
+        |--------------------------------------------------------------------------
+        */
+
+        $panel->detail = [
+            'session' => $sessionCookie,
+            'cookies' => $cookies,
+            'Domain' => parse_url($data['url'], PHP_URL_HOST),
+        ];
+
         $panel->save();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Return result
+        |--------------------------------------------------------------------------
+        */
 
         return [
             'status' => true,
-            'cookies' => $cookies,
             'session' => $sessionCookie,
+            'cookies' => $cookies,
             'raw' => $Data,
+            'http_code' => $httpCode,
         ];
     }
 }
@@ -281,125 +347,125 @@ if (!function_exists('generateConfig')) {
 
 }
 
-//if (!function_exists('generateVlessConfig')) {
-//
-//    function generateVlessConfig($inbound, $clientRemark, $serverAddress)
-//    {
-//
-//
-//        $uuid = $clientRemark['id'];
-//        $port = $inbound['port'];
-//
-//        $stream = $inbound['streamSettings'] ?? [];
-//
-//        $network = $stream['network'] ?? 'tcp';
-//        $security = $stream['security'] ?? 'none';
-//
-//        $query = [
-//            'type' => $network,
-//            'encryption' => 'none',
-//        ];
-//
-//        /*
-//        |--------------------------------------------------------------------------
-//        | TLS
-//        |--------------------------------------------------------------------------
-//        */
-//
-//        if ($security !== 'none') {
-//
-//            $query['security'] = $security;
-//
-//            $tls = $stream['tlsSettings'] ?? [];
-//
-//            if (!empty($tls['alpn'])) {
-//                $query['alpn'] = implode(',', $tls['alpn']);
-//            }
-//
-//            if (!empty($tls['settings']['fingerprint'])) {
-//                $query['fp'] = $tls['settings']['fingerprint'];
-//            }
-//
-//            if (!empty($tls['serverName'])) {
-//                $query['sni'] = $tls['serverName'];
-//            }
-//        }
-//
-//        /*
-//        |--------------------------------------------------------------------------
-//        | WS
-//        |--------------------------------------------------------------------------
-//        */
-//
-//        if ($network === 'ws') {
-//
-//            $ws = $stream['wsSettings'] ?? [];
-//
-//            $query['path'] = $ws['path'] ?? '/';
-//
-//            if (!empty($ws['host'])) {
-//                $query['host'] = $ws['host'];
-//            }
-//        }
-//
-//        /*
-//        |--------------------------------------------------------------------------
-//        | gRPC
-//        |--------------------------------------------------------------------------
-//        */
-//
-//        if ($network === 'grpc') {
-//
-//            $grpc = $stream['grpcSettings'] ?? [];
-//
-//            if (!empty($grpc['serviceName'])) {
-//                $query['serviceName'] = $grpc['serviceName'];
-//            }
-//        }
-//
-//        /*
-//        |--------------------------------------------------------------------------
-//        | TCP
-//        |--------------------------------------------------------------------------
-//        */
-//
-//        if ($network === 'tcp') {
-//
-//            $tcp = $stream['tcpSettings'] ?? [];
-//
-//            if (!empty($tcp['header']['type'])) {
-//                $query['headerType'] = $tcp['header']['type'];
-//            }
-//        }
-//
-//        /*
-//        |--------------------------------------------------------------------------
-//        | Reality
-//        |--------------------------------------------------------------------------
-//        */
-//
-//        if ($security === 'reality') {
-//
-//            $reality = $stream['realitySettings'] ?? [];
-//
-//            if (!empty($reality['publicKey'])) {
-//                $query['pbk'] = $reality['publicKey'];
-//            }
-//
-//            if (!empty($reality['shortIds'][0])) {
-//                $query['sid'] = $reality['shortIds'][0];
-//            }
-//
-//            if (!empty($reality['serverNames'][0])) {
-//                $query['sni'] = $reality['serverNames'][0];
-//            }
-//        }
-//
-//        $queryString = http_build_query($query);
-//
-//        return "vless://{$uuid}@{$serverAddress}:{$port}?{$queryString}#{$clientRemark['remark']}";
-//    }
-//}
+if (!function_exists('generateVlessConfig')) {
+
+    function generateVlessConfig($inbound, $clientRemark, $serverAddress)
+    {
+
+
+        $uuid = $clientRemark['id'];
+        $port = $inbound['port'];
+
+        $stream = $inbound['streamSettings'] ?? [];
+
+        $network = $stream['network'] ?? 'tcp';
+        $security = $stream['security'] ?? 'none';
+
+        $query = [
+            'type' => $network,
+            'encryption' => 'none',
+        ];
+
+        /*
+        |--------------------------------------------------------------------------
+        | TLS
+        |--------------------------------------------------------------------------
+        */
+
+        if ($security !== 'none') {
+
+            $query['security'] = $security;
+
+            $tls = $stream['tlsSettings'] ?? [];
+
+            if (!empty($tls['alpn'])) {
+                $query['alpn'] = implode(',', $tls['alpn']);
+            }
+
+            if (!empty($tls['settings']['fingerprint'])) {
+                $query['fp'] = $tls['settings']['fingerprint'];
+            }
+
+            if (!empty($tls['serverName'])) {
+                $query['sni'] = $tls['serverName'];
+            }
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | WS
+        |--------------------------------------------------------------------------
+        */
+
+        if ($network === 'ws') {
+
+            $ws = $stream['wsSettings'] ?? [];
+
+            $query['path'] = $ws['path'] ?? '/';
+
+            if (!empty($ws['host'])) {
+                $query['host'] = $ws['host'];
+            }
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | gRPC
+        |--------------------------------------------------------------------------
+        */
+
+        if ($network === 'grpc') {
+
+            $grpc = $stream['grpcSettings'] ?? [];
+
+            if (!empty($grpc['serviceName'])) {
+                $query['serviceName'] = $grpc['serviceName'];
+            }
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | TCP
+        |--------------------------------------------------------------------------
+        */
+
+        if ($network === 'tcp') {
+
+            $tcp = $stream['tcpSettings'] ?? [];
+
+            if (!empty($tcp['header']['type'])) {
+                $query['headerType'] = $tcp['header']['type'];
+            }
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Reality
+        |--------------------------------------------------------------------------
+        */
+
+        if ($security === 'reality') {
+
+            $reality = $stream['realitySettings'] ?? [];
+
+            if (!empty($reality['publicKey'])) {
+                $query['pbk'] = $reality['publicKey'];
+            }
+
+            if (!empty($reality['shortIds'][0])) {
+                $query['sid'] = $reality['shortIds'][0];
+            }
+
+            if (!empty($reality['serverNames'][0])) {
+                $query['sni'] = $reality['serverNames'][0];
+            }
+        }
+
+        $queryString = http_build_query($query);
+
+        return "vless://{$uuid}@{$serverAddress}:{$port}?{$queryString}#{$clientRemark['remark']}";
+    }
+}
 
 
 function addClient($data)

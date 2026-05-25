@@ -215,6 +215,12 @@ class TelegramBotController extends Controller
                 case "adminGetInbounds":
                     return $this->adminGetInbounds($type);
                     break;
+                case "adminPanelDeleteDetail":
+                    return $this->adminPanelDeleteDetail($type);
+                    break;
+                case "adminPanelDeleteSubmit":
+                    return $this->adminPanelDeleteSubmit($type);
+                    break;
 
                 case "adminUserList":
                     return $this->adminUserList($type);
@@ -394,6 +400,13 @@ class TelegramBotController extends Controller
                     break;
                 case "adminConfirmCartReceipt":
                     return $this->adminConfirmCartReceipt($type);
+                    break;
+
+                case "adminInbounds":
+                    return $this->adminInbounds($type);
+                    break;
+                case "adminInboundList":
+                    return $this->adminInboundList($type);
                     break;
 
             }
@@ -867,8 +880,15 @@ class TelegramBotController extends Controller
         if (is_null($service)) {
             return $this->sendTemporaryMessage('سرویس مورد نظر یافت نشد');
         }
-        $list = Countries::where('type', $service_id)->paginate(10);
+        $planCountryIds = Panels::where('status', 1)
+            ->where('panel_type', $service_id)
+            ->pluck('country_id')
+            ->unique()
+            ->toArray();
 
+        $list = Countries::where('type', $service_id)
+            ->whereIn('id', $planCountryIds)
+            ->paginate(10);
 
         $text = "╔════════════════════╗
 🌍 <b>انتخاب کشور </b>
@@ -1963,10 +1983,10 @@ class TelegramBotController extends Controller
         $orderDetail = $preOrder->data;
 
         $plan = Plans::find($orderDetail['plan-id']);
-        $panel = Panels::where('country_id', $orderDetail['country-id'])->where('status',1)->first();
+        $panel = Panels::where('country_id', $orderDetail['country-id'])->where('status', 1)->first();
 
         $session['session'] = "";
-        if (!is_null($panel)){
+        if (!is_null($panel)) {
             $session = loginToSanaie([
                 'url' => $panel->url,
                 'username' => $panel->username,
@@ -2339,7 +2359,7 @@ class TelegramBotController extends Controller
         $session = loginToSanaie($data);
         $expireTime = $order->expire_at;
         $totalGb = $totalUsed = 'اطلاعات یافت نشد';
-        if ($session['status']){
+        if ($session['status']) {
 
             $data = [
                 'sessionCookie' => $session['session'],
@@ -2348,7 +2368,7 @@ class TelegramBotController extends Controller
             ];
 
             $clientData = getClient($data);
-            if ($clientData['success']){
+            if ($clientData['success']) {
                 $clientData = $clientData['obj'][0];
                 $totalGb = byteToGb($clientData['total']);
                 $totalUsed = byteToGb($clientData['allTime']);
@@ -4044,6 +4064,13 @@ class TelegramBotController extends Controller
                 'callback_data' => "type=adminGetInbounds|id=$panel->id"
             ]
         ];
+        $keyboard[] = [
+            [
+                'text' => 'حذف پنل',
+                'callback_data' => "type=adminPanelDeleteDetail|id=$panel->id",
+                'style' => 'danger'
+            ]
+        ];
 
         $text .= "\n⚠️ فیلدهای خالی با مقدار — مشخص شده‌اند.";
 
@@ -4222,6 +4249,17 @@ class TelegramBotController extends Controller
         } else {
             $text = rtrim($this->text, '/');
             Panels::where('id', $id)->update([$key => $text]);
+
+            if ($key == 'url') {
+                $checkSub = Panels::find($id);
+                if (is_null($checkSub->sub_address)) {
+                    $scheme = parse_url($text, PHP_URL_SCHEME) ?? 'https';
+                    $host = parse_url($text, PHP_URL_HOST);
+                    $result = $scheme . '://' . $host . ':2096/sub/';
+                    $checkSub->sub_address = $result;
+                    $checkSub->save();
+                }
+            }
         }
 
         $text = "فیلد `{$fields[$key]['label']}` با موفقیت ویرایش شد.";
@@ -4341,6 +4379,96 @@ class TelegramBotController extends Controller
 
             return $this->telegramSdk->answerCallback($data);
         }
+    }
+
+    protected function adminPanelDeleteDetail($type)
+    {
+        $id = $type['id'];
+
+        $service = Panels::find($id);
+        if (is_null($service)) {
+            return $this->sendTemporaryMessage('❌ پنل موردنظر پیدا نشد.');
+        }
+
+        $status = match ((int)$service->status) {
+            1 => '🟢 فعال',
+            -1 => '🔴 غیرفعال',
+            default => '🟡 معلق'
+        };
+
+        $text = "╔════════════════════╗\n";
+        $text .= "      🗑 حذف پنل\n";
+        $text .= "╚════════════════════╝\n\n";
+
+        $text .= "⚠️ آیا از حذف این پنل اطمینان دارید؟\n\n";
+
+        $text .= "📦 نام پنل:\n";
+        $text .= "<code>{$service->name}</code>\n\n";
+
+        $text .= "📊 وضعیت:\n";
+        $text .= "<code>{$status}</code>\n\n";
+
+        $text .= "❗ پس از حذف، امکان بازگردانی تعرفه وجود نخواهد داشت.\n\n";
+
+        /*
+        |--------------------------------------------------------------------------
+        | Buttons
+        |--------------------------------------------------------------------------
+        */
+
+        $keyboard = [];
+
+        $keyboard[] = [
+            [
+                'text' => '🗑 بله، حذف شود',
+                'callback_data' => "type=adminPanelDeleteSubmit|id={$id}",
+                'style' => 'danger'
+            ]
+        ];
+
+        $keyboard[] = $this->adminFooterButtons(
+            "type=adminPlanDetail|id={$id}"
+        );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Send Message
+        |--------------------------------------------------------------------------
+        */
+
+        $data = [
+            'chat_id' => $this->chatId,
+            'text' => trim($text),
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => $keyboard
+            ]),
+        ];
+
+        return $this->sendMessage($data, 'message');
+    }
+
+    protected function adminPanelDeleteSubmit($type)
+    {
+        $id = $type['id'];
+
+        $service = Panels::find($id);
+
+        if (is_null($service)) {
+            return $this->sendTemporaryMessage('پنل پیدا نشد');
+        }
+
+        $service->delete();
+
+        $this->telegramSdk->answerCallback([
+            'callback_query_id' => $this->callbackId,
+            'text' => "پنل با موفقیت حذف شد.",
+            'show_alert' => true,
+            'cache_time' => 1,
+        ]);
+
+
+        return $this->adminPanels(['page' => 1]);
     }
 
     // End Panels
@@ -7477,6 +7605,140 @@ class TelegramBotController extends Controller
         return $this->adminExtraBandwidths(['page' => 1]);
     }
 
+
+    // Inbounds
+
+    protected function adminInbounds($data)
+    {
+        $keyboard = [];
+        $keyboard[] = [
+            [
+                'text' => "اینبوند های ثنایی",
+                'callback_data' => "type=adminInboundList|value=sanaie"
+            ], [
+                'text' => "اینبوند های پاسارگاد",
+                'callback_data' => "type=adminInboundList|value=pasarguard"
+            ],
+        ];
+        $keyboard[] = $this->adminFooterButtons('type=adminPanelMenu');
+
+        $text = headTitle('لیست اینبوند ها');
+
+        $data = [
+            'chat_id' => $this->chatId,
+            'text' => trim($text),
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => $keyboard
+            ]),
+        ];
+        return $this->sendMessage($data, 'message');
+    }
+
+    protected function adminInboundList($data)
+    {
+        $type = $data['value'];
+        $page = $data['page'] ?? 1;
+
+        /*
+        |--------------------------------------------------------------------------
+        | Panels
+        |--------------------------------------------------------------------------
+        */
+
+        $panels = Panels::where('system_type', $type)
+            ->pluck('id')
+            ->toArray();
+        /*
+        |--------------------------------------------------------------------------
+        | Inbounds List
+        |--------------------------------------------------------------------------
+        */
+
+        $list = Inbounds::with(['panel'])
+            ->orderByDesc('id')
+            ->paginate(20, ['*'], 'page', $page);
+        /*
+        |--------------------------------------------------------------------------
+        | Text
+        |--------------------------------------------------------------------------
+        */
+
+        $text = headTitle('لیست اینبوند های ثنایی');
+
+        if ($list->count() == 0) {
+            $text .= "\n❌ هیچ اینبوندی یافت نشد.";
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Keyboard
+        |--------------------------------------------------------------------------
+        */
+
+        $keyboard = [];
+        $row = [];
+
+        foreach ($list as $inbound) {
+
+            $statusIcon = $inbound->status ? '🟢' : '🔴';
+
+            $row[] = [
+                'text' => "{$statusIcon} {$inbound->name}:{$inbound->port}",
+                'callback_data' => "type=adminToggleInboundStatus|id={$inbound->id}"
+            ];
+
+            if (count($row) === 2) {
+                $keyboard[] = $row;
+                $row = [];
+            }
+        }
+
+        if (!empty($row)) {
+            $keyboard[] = $row;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Pagination
+        |--------------------------------------------------------------------------
+        */
+
+        $pagination = $this->paginationFooterButton(
+            $list,
+            $page,
+            "adminInboundList|value={$type}"
+        );
+
+        if (!empty($pagination)) {
+            $keyboard[] = $pagination;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Footer Buttons
+        |--------------------------------------------------------------------------
+        */
+
+        $keyboard[] = $this->adminFooterButtons('type=adminInbounds');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Send Message
+        |--------------------------------------------------------------------------
+        */
+
+        $data = [
+            'chat_id' => $this->chatId,
+            'text' => trim($text),
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => $keyboard
+            ]),
+        ];
+
+        return $this->sendMessage($data, 'message');
+    }
 
     /**
      * Admin Area
