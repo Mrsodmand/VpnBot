@@ -48,6 +48,9 @@ class TelegramBotController extends Controller
     {
         $data = $request->all();
 
+        $telData = new TelegramData();
+        $telData->data = json_encode($data);
+        $telData->save();
 
         $this->token = env('TELEGRAM_BOT_TOKEN');
         $this->telegramSdk = new Telegram($this->token);
@@ -117,7 +120,8 @@ class TelegramBotController extends Controller
             if (array_key_exists('action', $type)) {
                 switch ($type['action']) {
                     case 'delete':
-                        return $this->deleteChat();
+                        $this->deleteChat();
+                        $this->method = 'toUser';
                         break;
                 }
             }
@@ -180,6 +184,27 @@ class TelegramBotController extends Controller
                 case "clientSingleOrder":
                     $this->deleteChat();
                     return $this->clientSingleOrder($type);
+                    break;
+                case "clientChangeConfigName":
+                    $this->deleteChat();
+                    $this->method = 'toUser';
+                    return $this->clientChangeConfigName($type);
+                    break;
+                case "clientChangeConfigUid":
+                    return $this->clientChangeConfigUid($type);
+                    break;
+                case "clientRenewOrder":
+                    return $this->clientRenewOrder($type);
+                    break;
+                case "clientSubmitRenew":
+                    return $this->clientSubmitRenew($type);
+                    break;
+
+                case "clientBuyExtra":
+                    return $this->clientBuyExtra($type);
+                    break;
+                case "clientSubmitExtra":
+                    return $this->clientSubmitExtra($type);
                     break;
 
                 // Seller Access
@@ -408,6 +433,9 @@ class TelegramBotController extends Controller
                 case "adminInboundList":
                     return $this->adminInboundList($type);
                     break;
+                case "adminToggleInboundStatus":
+                    return $this->adminToggleInboundStatus($type);
+                    break;
 
             }
 
@@ -509,6 +537,10 @@ class TelegramBotController extends Controller
             case 'clientOrders':
                 $type['search'] = $this->text;
                 return $this->clientOrders($type);
+                break;
+            case 'clientChangeConfigNameSubmit':
+                $type['name'] = $this->text;
+                return $this->clientChangeConfigNameSubmit($type);
                 break;
         }
     }
@@ -698,7 +730,7 @@ class TelegramBotController extends Controller
             return [
                 [
                     'text' => '🏠 منو اصلی',
-                    'callback_data' => 'type=home',
+                    'callback_data' => 'type=home|',
 //                    'style' => 'primary'
                 ],
                 [
@@ -751,7 +783,6 @@ class TelegramBotController extends Controller
             return $pagination;
         }
     }
-
 
     protected function home($type = null)
     {
@@ -815,7 +846,6 @@ class TelegramBotController extends Controller
         ];
         return $this->sendMessage($data, 'message');
     }
-
 
     /**
      * Client Area
@@ -1864,20 +1894,7 @@ class TelegramBotController extends Controller
             $payment->status = 1;
             $payment->save();
 
-            switch ($payment->type) {
-                case "1":
-                    return $this->submitOrder($payment->id);
-                    break;
-                case "renew":
-                    return 'asad';
-                    break;
-                case "extra-bandwidth":
-                    return 'aassasd';
-                    break;
-                case "charge-wallet":
-                    return 'asdasd';
-                    break;
-            }
+            return $this->finalPaymentStep($payment);
         }
     }
 
@@ -1903,31 +1920,35 @@ class TelegramBotController extends Controller
 
         if ($payment->status == 0) {
             $user->decrement('balance', $payment->price);
-
-            $payment->status = 1;
+//            $payment->status = 1;
             $payment->method = 'wallet';
             $payment->save();
-            switch ($payment->type) {
-                case "1":
-                    return $this->submitOrder($payment->id, 'toUser');
-                    break;
-                case "renew":
-                    return 'asad';
-                    break;
-                case "extra-bandwidth":
-                    return 'aassasd';
-                    break;
-                case "charge-wallet":
-                    return 'asdasd';
-                    break;
-            }
+            return $this->finalPaymentStep($payment);
         }
 
     }
 
+    protected function finalPaymentStep($payment)
+    {
+        switch ($payment->type) {
+            case "1":
+                return $this->submitOrder($payment->id, 'toUser');
+                break;
+            case "2":
+                return $this->clientFinalRenew(['id' => $payment->id]);
+                break;
+            case "3":
+                return $this->clientFinalExtra(['id' => $payment->id]);
+                break;
+            case "charge-wallet":
+                return 'asdasd';
+                break;
+        }
+    }
 
     private function submitOrder($payment)
     {
+
         /*
         |--------------------------------------------------------------------------
         | Get Channel
@@ -2026,22 +2047,15 @@ class TelegramBotController extends Controller
             ->where('status', 1)
             ->first();
 
-        $inboundResult = getInbounds([
-            'url' => $panel->url,
-            'session' => $session['session'],
-        ]);
-
-        $inbound = collect($inboundResult['inbounds'] ?? [])
-            ->firstWhere('id', $activeInbound->inbound_id ?? null);
-
+        $inbound = json_decode($activeInbound->setting, true);
         if (!$inbound) {
             return $this->sendTemporaryMessage('❌ اینباند یافت نشد.');
         }
 
+
         $inbound['settings'] = json_decode($inbound['settings'] ?? '{}', true);
         $inbound['streamSettings'] = json_decode($inbound['streamSettings'] ?? '{}', true);
         $inbound['sniffing'] = json_decode($inbound['sniffing'] ?? '{}', true);
-
         /*
         |--------------------------------------------------------------------------
         | Create Clients
@@ -2083,14 +2097,13 @@ class TelegramBotController extends Controller
                 'limitIp' => 0,
                 'totalGB' => gbToByte($bandwidth),
             ];
-
             $addClient = addClient($addClientData);
 
             if (!($addClient['success'] ?? false)) {
                 continue;
             }
 
-            $code = generateConfig($inbound, $addClientData, $address);
+            $code = makeSanaeiVlessConfig($inbound['streamSettings'], $addClientData['uuid'], $remark);
 
             $Order = Orders::create([
                 'user_id' => $payment->user_id,
@@ -2122,10 +2135,10 @@ class TelegramBotController extends Controller
         |--------------------------------------------------------------------------
         */
 
-//        $preOrder->update([
-//            'status' => $successCount == $preOrder->count ? 1 : 0,
-//            'count_left' => max(0, $preOrder->count_left - $successCount),
-//        ]);
+        $preOrder->update([
+            'status' => $successCount == $preOrder->count ? 1 : 0,
+            'count_left' => max(0, $preOrder->count_left - $successCount),
+        ]);
 
         /*
         |--------------------------------------------------------------------------
@@ -2315,101 +2328,1009 @@ class TelegramBotController extends Controller
 
     protected function clientSingleOrder($data)
     {
-        $id = $data['id'];
+        $id = $data['id'] ?? null;
         $user = $this->user;
 
-        $order = Orders::find($id);
-        if (is_null($order)) {
-            //
-        }
-        if ($order->user_id != $user->id) {
-            //
+        if (!$id) {
+            return $this->telegramSdk->sendMessage([
+                'chat_id' => $user->tel_id,
+                'text' => "❌ <b>سفارش نامعتبر است!</b>\n\nلطفا دوباره از بخش «سرویس های من» سفارش خود را انتخاب کنید.",
+                'parse_mode' => 'HTML',
+            ]);
         }
 
-        $buttons[] =
+        $order = Orders::where('id', $id)
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (is_null($order)) {
+            return $this->telegramSdk->sendMessage([
+                'chat_id' => $user->tel_id,
+                'text' => "🚫 <b>سفارش یافت نشد</b>\n\nاین سفارش وجود ندارد یا متعلق به حساب شما نیست.",
+                'parse_mode' => 'HTML',
+            ]);
+        }
+
+        $buttons = [];
+
+        $allowSellExtra = Setting::where('key', 'extra')->value('value') == 1;
+
+        $buttons[] = [
             [
+                'text' => '✏️ تغییر نام',
+                'callback_data' => "type=clientChangeConfigName|id={$order->id}",
+            ],
+            [
+                'text' => '🔗 تغییر کد',
+                'callback_data' => "type=clientChangeConfigUid|id={$order->id}",
+            ],
+        ];
+
+
+        if ($allowSellExtra) {
+            $buttons[] = [
                 [
-                    'text' => 'تغییر نام',
-                    'callback_data' => "type=clientSingleOrder",
+                    'text' => '➕ خرید حجم',
+                    'callback_data' => "type=clientBuyExtra|id={$order->id}",
                 ],
                 [
-                    'text' => 'تمدید',
-                    'callback_data' => "type=clientSingleOrder",
+                    'text' => '🔄 تمدید سرویس',
+                    'callback_data' => "type=clientRenewOrder|id={$order->id}",
                 ],
             ];
-        $buttons[] =
-            [
+
+            $buttons[] = [
                 [
-                    'text' => 'فایل های راهنما',
-                    'callback_data' => "type=clientSingleOrder",
-                ],
-                [
-                    'text' => 'تمدید',
-                    'callback_data' => "type=clientSingleOrder",
+                    'text' => '📚 فایل های راهنما',
+                    'callback_data' => "type=clientGuides|id={$order->id}",
                 ],
             ];
+        } else {
+            $buttons[] = [
+                [
+                    'text' => '📚 فایل های راهنما',
+                    'callback_data' => "type=clientGuides|id={$order->id}",
+                ],
+                [
+                    'text' => '🔄 تمدید سرویس',
+                    'callback_data' => "type=clientRenewOrder|id={$order->id}",
+                ],
+            ];
+        }
+
+        $buttons[] = [
+
+                [
+                    'text' => '🏠 منو اصلی',
+                    'callback_data' => 'type=home|action=delete',
+                ],
+                [
+                    'text' => '🔙 بازگشت',
+                    'callback_data' => 'type=clientOrders|action=delete',
+                ],
+
+        ];
 
         $panel = Panels::find($order->panel_id);
-        $data = [
+
+        if (is_null($panel)) {
+            return $this->telegramSdk->sendMessage([
+                'chat_id' => $user->tel_id,
+                'text' => "⚠️ <b>خطا در دریافت اطلاعات سرویس</b>\n\nپنل مربوط به این سفارش پیدا نشد. لطفا با پشتیبانی در ارتباط باشید.",
+                'parse_mode' => 'HTML',
+            ]);
+        }
+
+        $expireTime = $order->expire_at ? (string)$order->expire_at : 'اطلاعات یافت نشد';
+        $totalGb = 'اطلاعات یافت نشد';
+        $totalUsed = 'اطلاعات یافت نشد';
+        $left = 'اطلاعات یافت نشد';
+
+        $loginData = [
             'username' => $panel->username,
             'password' => $panel->password,
             'url' => $panel->url,
         ];
 
-        $session = loginToSanaie($data);
-        $expireTime = $order->expire_at;
-        $totalGb = $totalUsed = 'اطلاعات یافت نشد';
-        if ($session['status']) {
+        $session = loginToSanaie($loginData);
 
-            $data = [
+        if (!empty($session['status'])) {
+            $clientRequestData = [
                 'sessionCookie' => $session['session'],
                 'serverUrl' => $panel->url,
                 'uuid' => $order->uid,
             ];
 
-            $clientData = getClient($data);
-            if ($clientData['success']) {
-                $clientData = $clientData['obj'][0];
-                $totalGb = byteToGb($clientData['total']);
-                $totalUsed = byteToGb($clientData['allTime']);
-                $expireTime = Carbon::createFromTimestampMs($clientData['expiryTime']);
-                $left = $totalGb - $totalUsed;
+            $clientData = getClient($clientRequestData);
+
+            if (!empty($clientData['success']) && !empty($clientData['obj'][0])) {
+                $client = $clientData['obj'][0];
+
+                $totalGbValue = byteToGb($client['total'] ?? 0);
+                $totalUsedValue = byteToGb($client['allTime'] ?? 0);
+
+                $totalGb = $totalGbValue;
+                $totalUsed = $totalUsedValue;
+
+                if (is_numeric($totalGbValue) && is_numeric($totalUsedValue)) {
+                    $left = max(0, $totalGbValue - $totalUsedValue);
+                }
+
+                if (!empty($client['expiryTime']) && $client['expiryTime'] > 0) {
+                    $expireTime = Carbon::createFromTimestampMs($client['expiryTime'])
+                        ->format('Y-m-d H:i');
+                }
             }
         }
 
-        $buttons[] = $this->clientFooterButtons('type=clientOrders|action=delete');
+        $detail = is_array($order->detail)
+            ? $order->detail
+            : json_decode($order->detail, true);
 
-        $photo = "https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=" . urlencode($order->detail['code']);
-        $this->telegramSdk->sendPhoto([
+        $configCodeRaw = $detail['code'] ?? '-';
+
+        $subUrl = rtrim($panel->sub_address, '/') . '/' . $order->sub_id;
+
+        $configCode = htmlspecialchars($configCodeRaw, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $subUrlSafe = htmlspecialchars($subUrl, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+
+        $message = "<b>✅ جزئیات سفارش #{$order->id}</b>\n\n";
+        $message .= "<b>حجم کل:</b> {$totalGb} گیگ\n";
+        $message .= "<b>حجم مصرف شده:</b> {$totalUsed} گیگ\n";
+        $message .= "<b>حجم باقی مانده:</b> {$left} گیگ\n";
+        $message .= "<b>زمان پایان:</b> {$expireTime}\n\n";
+        $message .= "<b>کد کانفیگ:</b>\n<code>{$configCode}</code>\n\n";
+        $message .= "<b>لینک ساب:</b>\n<code>{$subUrlSafe}</code>";
+
+        /*
+         * نکته مهم:
+         * caption در sendPhoto محدودیت دارد.
+         * اگر متن طولانی شد، اول QR را می فرستیم، بعد متن کامل را با sendMessage ارسال می کنیم.
+         */
+        $photo = "https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=" . urlencode($subUrl);
+
+        if (mb_strlen(strip_tags($message), 'UTF-8') <= 900) {
+            return $this->telegramSdk->sendPhoto([
+                'chat_id' => $user->tel_id,
+                'photo' => $photo,
+                'caption' => $message,
+                'parse_mode' => 'HTML',
+                'reply_markup' => json_encode([
+                    'inline_keyboard' => $buttons,
+                ]),
+            ]);
+        }
+
+        return $this->telegramSdk->sendPhoto([
             'chat_id' => $user->tel_id,
             'photo' => $photo,
-            'caption' => "
-<b>✅ سفارش با موفقیت تکمیل شد</b>
+            'caption' => $message,
+            'reply_markup' => json_encode([
+                'inline_keyboard' => $buttons,
+            ]),
+        ]);
+    }
 
-🧾 شماره سفارش:
-<code>{$order->id}</code>
 
-🧾 ریمارک:
-<code>{$order->remark}</code>
+    protected function clientChangeConfigName($data)
+    {
+        $orderId = $data['id'];
+        $this->updatePath('clientChangeConfigNameSubmit');
+        $user = $this->user;
 
-حجم کل:
-<code>{$totalGb} گیگ</code>
+        $order = Orders::find($orderId);
 
-حجم مصرف شده:
-<code>{$totalUsed} گیگ</code>
+        $telDetail = $user->tel_detail ?? [];
+        $telDetail['order-id'] = $orderId;
+        $user->tel_detail = $telDetail;
+        $user->save();
 
-حجم باقی مانده:
-<code>{$left} گیگ</code>
+        $text = "⚙️ <b>تغییر نام کانفیگ</b>\n\n";
+        $text .= " مقدار قبلی : <b>{$order->remark}</b>\n\n";
 
-زمان پایان:
-<code>{$expireTime}</code>
+        $buttons = [];
 
-",
+        $buttons[] = $this->adminFooterButtons("type=clientSingleOrder|id={$order->id}");
+
+
+        $data = [
+            'chat_id' => $this->chatId,
+            'text' => trim($text),
             'parse_mode' => 'HTML',
             'reply_markup' => json_encode([
                 'inline_keyboard' => $buttons
             ]),
-        ]);
+        ];
+
+        return $this->sendMessage($data, 'message');
+    }
+
+    protected function clientChangeConfigNameSubmit($data)
+    {
+        $name = $data['name'];
+        if (!preg_match('/^[a-zA-Z]+$/', $name)) {
+            return $this->sendTemporaryMessage(
+                '❌ نام فقط باید شامل حروف انگلیسی باشد.'
+            );
+        }
+
+        $name = $name . '-' . rand(100, 999);
+
+        $user = $this->user;
+        $userDetail = $user->tel_detail;
+
+        $order = Orders::find($userDetail['order-id']);
+
+        $panel = Panels::find($order->panel_id);
+        $inbound = Inbounds::find($order->inbound_id);
+        $loginData = [
+            'username' => $panel->username,
+            'password' => $panel->password,
+            'url' => $panel->url,
+        ];
+        $session = loginToSanaie($loginData);
+
+        $clientRequestData = [
+            'sessionCookie' => $session['session'],
+            'serverUrl' => $panel->url,
+            'uuid' => $order->uid,
+        ];
+
+        $clientData = getClient($clientRequestData)['obj'][0];
+        $result = [
+            'serverUrl' => $panel->url,
+            'sessionCookie' => $session['session'],
+            'inboundId' => $clientData['inboundId'],
+            'oldUuid' => $order->uid,
+            'uuid' => $order->uid,
+            'email' => $name,
+            'expiryTimestamp' => $clientData['expiryTime'],
+            'limitIp' => 0,
+            'subId' => $clientData['subId'],
+            'totalGB' => $clientData['total'],
+        ];
+
+        $result = updateClient($result);
+        if ($result['success']) {
+
+            $code = makeSanaeiVlessConfig(json_decode($inbound->setting, true)['streamSettings'], $order->uid, $name);
+
+            $orderDetail = $order->detail;
+            $orderDetail['code'] = $code;
+
+            $order->remark = $name;
+            $order->detail = $orderDetail;
+            $order->save();
+            $data = [
+                'callback_query_id' => $this->callbackId,
+                'text' => 'نام کانفیگ با موفقیت تغییر پیدا کرد.',
+                'show_alert' => true,
+                'cache_time' => 1,
+            ];
+
+            $this->telegramSdk->answerCallback($data);
+
+            $data['id'] = $order->id;
+            return $this->clientSingleOrder($data);
+        } else {
+            $data = [
+                'callback_query_id' => $this->callbackId,
+                'text' => 'خطا در تغییر نام کانفیگ',
+                'show_alert' => true,
+                'cache_time' => 1,
+            ];
+
+            $this->telegramSdk->answerCallback($data);
+
+            $data['id'] = $order->id;
+            return $this->clientSingleOrder($data);
+        }
+
+    }
+
+    protected function clientChangeConfigUid($data)
+    {
+        $id = $data['id'];
+        $uid = (string)Str::uuid();
+
+        $order = Orders::find($id);
+        $name = $order->remark;
+
+        $panel = Panels::find($order->panel_id);
+        $inbound = Inbounds::find($order->inbound_id);
+        $loginData = [
+            'username' => $panel->username,
+            'password' => $panel->password,
+            'url' => $panel->url,
+        ];
+        $session = loginToSanaie($loginData);
+        $clientRequestData = [
+            'sessionCookie' => $session['session'],
+            'serverUrl' => $panel->url,
+            'uuid' => $order->uid,
+        ];
+        $clientData = getClient($clientRequestData)['obj'][0];
+
+        $result = [
+            'serverUrl' => $panel->url,
+            'sessionCookie' => $session['session'],
+            'inboundId' => $clientData['inboundId'],
+            'oldUuid' => $order->uid,
+            'uuid' => $uid,
+            'email' => $name,
+            'expiryTimestamp' => $clientData['expiryTime'],
+            'limitIp' => 0,
+            'subId' => $clientData['subId'],
+            'totalGB' => $clientData['total'],
+        ];
+
+        $result = updateClient($result);
+        if ($result['success']) {
+
+            $code = makeSanaeiVlessConfig(json_decode($inbound->setting, true)['streamSettings'], $uid, $name);
+
+            $orderDetail = $order->detail;
+            $orderDetail['code'] = $code;
+
+            $order->uid = $uid;
+            $order->detail = $orderDetail;
+            $order->save();
+            $data = [
+                'callback_query_id' => $this->callbackId,
+                'text' => 'کد کانفیگ با موفقیت تغییر پیدا کرد.',
+                'show_alert' => true,
+                'cache_time' => 1,
+            ];
+
+            $this->telegramSdk->answerCallback($data);
+
+            $data['id'] = $order->id;
+            $this->deleteChat();
+            return $this->clientSingleOrder($data);
+        } else {
+            $data = [
+                'callback_query_id' => $this->callbackId,
+                'text' => 'خطا در تغییر کد کانفیگ',
+                'show_alert' => true,
+                'cache_time' => 1,
+            ];
+
+            $this->telegramSdk->answerCallback($data);
+
+            $data['id'] = $order->id;
+            return $this->clientSingleOrder($data);
+        }
+
+    }
+
+
+    protected function clientRenewOrder($data)
+    {
+
+        $orderid = $data['id'];
+
+        $order = Orders::find($orderid);
+
+        $panel = Panels::find($order->panel_id);
+
+        $plans = Plans::where('type', $panel->panel_type)->where('status', 1)->orderbyDesc('id')->get();
+
+        if (count($plans) > 0) {
+            foreach ($plans as $item) {
+                $name = !is_null($item->name) ? $item->name : 'بدون نام';
+                $price = number_format($item->price);
+                $keyboard[] = [
+
+                    [
+                        'text' => "{$name} | حجم: {$item->bandwidth} گیگ | مبلغ:$price T",
+                        'callback_data' => "type=clientSubmitRenew|o_id={$order->id}|pl_id={$item->id}",
+                    ],
+                ];
+            }
+        }
+        $text = headTitle('تمدید سرویس');
+        $text .= "
+💡 لطفاً یکی از تعرفه‌های زیر را انتخاب کنید:";
+
+        $keyboard[] = $this->clientFooterButtons("type=clientSingleOrder|id={$order->id}");
+        $data = [
+            'chat_id' => $this->chatId,
+            'text' => trim($text),
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => $keyboard
+            ]),
+        ];
+        $this->deleteChat();
+        $this->method = 'toUser';
+        return $this->sendMessage($data, 'message');
+
+    }
+
+    protected function clientSubmitRenew($data)
+    {
+
+        $orderId = $data['o_id'];
+        $planId = $data['pl_id'];
+        $user = $this->user;
+
+        $plan = Plans::find($planId);
+        $price = number_format($plan->price);
+
+        $detail['plan-id'] = $plan->id;
+
+        $payment = new Payment();
+        $payment->user_id = $user->id;
+        $payment->order_id = $orderId;
+        $payment->price = $plan->price;
+        $payment->status = 0;
+        $payment->detail = $detail;
+        $payment->type = 2;
+        $payment->expired_at = Carbon::now()->addMinutes(10);
+        $payment->save();
+
+        $text = "╔════════════════════╗
+🌍 <b>انتخاب نحوه پرداخت</b>
+╚════════════════════╝
+
+🌐 <b>تعرفه انتخاب شده انتخاب‌شده:</b>
+<code>{$plan->name} | حجم: {$plan->bandwidth} GB | مبلغ:{$price} تومان</code>
+
+
+💡 نحوه پرداخت را مشخص کنید:";
+
+        $keyboard[] = [
+            [
+                'text' => 'کیف پول',
+                'callback_data' => "type=paymentWallet|id={$payment->id}",
+            ],
+        ];
+
+        $cartBeCart = Setting::where('key', 'cart_be_cart')->first();
+        if (!is_null($cartBeCart) && $cartBeCart->value == 1) {
+            $keyboard[] = [
+                [
+                    'text' => 'کارت به کارت',
+                    'callback_data' => "type=paymentCartBeCart|id={$payment->id}",
+                ],
+            ];
+        }
+
+        $keyboard[] = [
+            [
+                'text' => '🔙 بازگشت',
+                'callback_data' => "type=clientRenewOrder|id={$orderId}",
+            ],
+        ];
+        $data = [
+            'chat_id' => $this->chatId,
+            'text' => trim($text),
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => $keyboard
+            ]),
+        ];
+
+        return $this->sendMessage($data, 'message');
+    }
+
+    protected function clientFinalRenew($data)
+    {
+        $payment = Payment::find($data['id']);
+        $targetUser = User::find($payment->user_id);
+
+        $adminMethod = 'toUser';
+        $userMethod = 'toUser';
+
+        $transactionChannel = Setting::where('key', 'cart_be_cart_id')->first();
+        $channelId = (!is_null($transactionChannel) && !empty($transactionChannel->value))
+            ? $transactionChannel->value
+            : optional(User::where('is_admin', 1)->first())->tel_id;
+
+        if (!$channelId) {
+            return $this->sendTemporaryMessage('❌ مقصد ارسال رسید یافت نشد.');
+        }
+        if ($payment->method == 'cart-be-cart') {
+            $caption = "✅ <b>تراکنش تایید شد</b>\n\n⏳ در حال تحویل سفارش به کاربر هستیم...\nلطفاً چند لحظه صبر کنید.";
+
+            $this->sendMessage([
+                'chat_id' => $channelId,
+                'text' => $caption,
+                'parse_mode' => 'HTML',
+            ], 'message');
+            $adminMethod = 'toUser';
+        }
+        if ($payment->method == 'wallet') {
+
+            $caption = "✅ <b>تراکنش تایید شد</b>\n\n⏳ در حال پردازش سفارش هستیم...\nلطفاً چند لحظه صبر کنید.";
+
+            $this->sendMessage([
+                'chat_id' => $targetUser->tel_id,
+                'text' => $caption,
+                'parse_mode' => 'HTML',
+            ], 'message');
+
+            $userMethod = 'edit';
+        }
+
+        $order = Orders::find($payment->order_id);
+
+        $plan = Plans::find($payment->detail['plan-id']);
+        $panel = Panels::find($order->panel_id);
+        $loginData = [
+            'username' => $panel->username,
+            'password' => $panel->password,
+            'url' => $panel->url,
+        ];
+        $session = loginToSanaie($loginData);
+
+        $clientRequestData = [
+            'sessionCookie' => $session['session'],
+            'serverUrl' => $panel->url,
+            'uuid' => $order->uid,
+        ];
+
+        $clientData = getClient($clientRequestData)['obj'][0];
+        $band = gbToByte($plan->bandwidth);
+
+        $time = Carbon::createFromTimestampMs($clientData['expiryTime'])
+            ->timezone('Asia/Tehran')->format('Y-m-d H:i:s');
+        $expire = Carbon::parse($time)->addDays((int)$plan->days);
+
+        $expiryTimestamp = $expire->timestamp * 1000;
+
+        $result = [
+            'serverUrl' => $panel->url,
+            'sessionCookie' => $session['session'],
+            'inboundId' => $clientData['inboundId'],
+            'uuid' => $order->uid,
+            'email' => $clientData['email'],
+            'expiryTimestamp' => $expiryTimestamp,
+            'limitIp' => 0,
+            'subId' => $clientData['subId'],
+            'totalGB' => $clientData['total'] + $band,
+        ];
+
+        $result = updateClient($result);
+
+        if ($result['success']) {
+
+
+            $order->expire_at = $expire;
+            $order->status = 1;
+            $order->reminded = 0;
+            $order->save();
+
+            $caption = "تمدید سرویس با موفقیت انجام شد.";
+
+            $this->method = 'toUser';
+            $this->sendMessage([
+                'chat_id' => $targetUser->tel_id,
+                'text' => $caption,
+                'parse_mode' => 'HTML',
+                'reply_markup' => json_encode([
+                    'inline_keyboard' => [
+                        [
+                            [
+                                'text' => '📄 جزئیات سفارش',
+                                'callback_data' => "type=clientSingleOrder|id={$order->id}",
+                            ]
+                        ]
+                    ]
+                ]),
+            ], 'message');
+
+
+            $targetUserName = $targetUser->username
+                ? "@{$targetUser->username}"
+                : ($targetUser->first_name ?? 'بدون نام');
+
+            $price = number_format($payment->price);
+            if ($payment->method == 'cart-be-cart') {
+
+                $adminUserName = $this->user->username
+                    ? "@{$this->user->username}"
+                    : ($this->user->first_name ?? 'ادمین');
+
+                $caption = "✅ <b>تمدید تایید شد</b>\n\n";
+                $caption .= "━━━━━━━━━━━━━━━\n";
+                $caption .= "👤 <b>کاربر:</b> {$targetUserName}\n";
+                $caption .= "🆔 <b>شناسه تلگرام:</b> <code>{$targetUser->tel_id}</code>\n";
+                $caption .= "━━━━━━━━━━━━━━━\n";
+                $caption .= "💳 <b>جزئیات پرداخت</b>\n";
+                $caption .= "🔢 <b>شماره تراکنش:</b> <code>{$payment->id}</code>\n";
+                $caption .= "💰 <b>مبلغ واریزی:</b> <code>{$price}</code> تومان\n";
+                $caption .= "💰 <b>نوع پرداخت:</b> کارت به کارت \n";
+                $caption .= "━━━━━━━━━━━━━━━\n";
+                $caption .= "👨‍💻 <b>تایید شده توسط:</b> {$adminUserName}\n";
+                $caption .= "📌 <b>وضعیت:</b> موفق\n";
+                $caption .= "━━━━━━━━━━━━━━━\n";
+            } elseif ($payment->method == 'wallet') {
+
+                $this->deleteChat();
+                $caption = "✅ <b>تمدید آی پی</b>\n\n";
+                $caption .= "━━━━━━━━━━━━━━━\n";
+                $caption .= "👤 <b>کاربر:</b> {$targetUserName}\n";
+                $caption .= "🆔 <b>شناسه تلگرام:</b> <code>{$targetUser->tel_id}</code>\n";
+                $caption .= "━━━━━━━━━━━━━━━\n";
+                $caption .= "💳 <b>جزئیات پرداخت</b>\n";
+                $caption .= "💰 <b>مبلغ واریزی:</b> <code>{$price}</code> تومان\n";
+                $caption .= "💰 <b>نوع پرداخت:</b> کیف پول\n";
+            }
+
+
+            $this->method = $adminMethod;
+            $this->sendMessage([
+                'chat_id' => $channelId,
+                'text' => $caption,
+                'parse_mode' => 'HTML',
+            ], 'message');
+
+        } else {
+            $targetUser->balance = $payment->price + $targetUser->balance;
+            $targetUser->save();
+
+            $caption = "❌ <b>تمدید سرویس ناموفق بود</b>
+
+متاسفانه عملیات تمدید سرویس شما با خطا مواجه شد.
+
+💰 مبلغ پرداختی شما به کیف پول بازگردانده شد.
+
+📄 <b>شماره تراکنش:</b> <code>{$payment->id}</code>
+💳 <b>مبلغ بازگشتی:</b> <code>{$payment->price}</code>
+
+✅ موجودی کیف پول شما با موفقیت شارژ شد.";
+
+            $this->method = 'toUser';
+            $this->sendMessage([
+                'chat_id' => $targetUser->tel_id,
+                'text' => $caption,
+                'parse_mode' => 'HTML',
+            ], 'message');
+
+            $caption = "🚨 <b>خطا در پردازش سفارش</b>
+
+❌ تمدید سرویس ناموفق بود و سرویس ایجاد نشد.
+
+📄 شماره تراکنش: <code>{$payment->id}</code>
+💰 مبلغ: <code>{$payment->price}</code>
+
+🔄 مبلغ به کیف پول کاربر بازگردانده شد.
+✅ عملیات بازگشت وجه با موفقیت انجام شد.";
+            $this->method = $adminMethod;
+            return $this->sendMessage([
+                'chat_id' => $channelId,
+                'text' => $caption,
+                'parse_mode' => 'HTML',
+            ], 'message');
+
+        }
+    }
+
+
+    protected function clientBuyExtra($data)
+    {
+        $order = Orders::find($data['id']);
+        $panel = Panels::find($order->panel_id);
+
+        $service = Service::find($panel->panel_type);
+        if (is_null($service)) {
+            return $this->sendTemporaryMessage('سرویس مورد نظر یافت نشد');
+        }
+
+        $text = headTitle("خرید حجم اضافه");
+        $text .= "
+💡 لطفاً یکی از گزینه زیر را انتخاب کنید:";
+
+
+        $allowSellExtra = Setting::where('key', 'extra')->first();
+        if (!is_null($allowSellExtra) && $allowSellExtra->value != 1) {
+            return $this->home();
+        }
+
+        $list = ExtraBandwidth::where('type', $service->id)->where('status', 1)->paginate(20);
+        $perGbPrice = $service->price_per_gb;
+
+        $keyboard = [];
+        $row = [];
+        if (count($list) > 0) {
+            foreach ($list as $item) {
+                $name = !is_null($item->name) ? $item->name : 'بدون نام';
+                $price = calculateExtraDiscount($item, $perGbPrice);
+                $price = number_format($price['price']);
+                $row[] = [
+                    'text' => "{$name} GB | {$price} تومان",
+                    'callback_data' => "type=clientSubmitExtra|o_id={$order->id}|ex_id=$item->id",
+                ];
+                if (count($row) === 2) {
+                    $keyboard[] = $row;
+                    $row = [];
+                }
+            }
+            if (!empty($row)) {
+                $keyboard[] = $row;
+            }
+        }
+
+
+        $keyboard[] = $this->clientFooterButtons("type=clientSingleOrder|id={$order->id}");
+        $data = [
+            'chat_id' => $this->chatId,
+            'text' => trim($text),
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => $keyboard
+            ]),
+        ];
+        $this->deleteChat();
+        $this->method = 'toUser';
+        return $this->sendMessage($data, 'message');
+    }
+
+    protected function clientSubmitExtra($data)
+    {
+        $orderId = $data['o_id'];
+        $extraId = $data['ex_id'];
+        $user = $this->user;
+
+        $extra = ExtraBandwidth::find($extraId);
+        $service = Service::find($extra->type);
+        if (is_null($service)) {
+            return $this->sendTemporaryMessage('سرویس مورد نظر یافت نشد');
+        }
+        $perGbPrice = $service->price_per_gb;
+
+        $price = number_format($extra->name * $perGbPrice);
+
+        $detail['extra-id'] = $extra->id;
+
+        $payment = new Payment();
+        $payment->user_id = $user->id;
+        $payment->order_id = $orderId;
+        $payment->price = $extra->name * $perGbPrice;
+        $payment->status = 0;
+        $payment->detail = $detail;
+        $payment->type = 3;
+        $payment->expired_at = Carbon::now()->addMinutes(10);
+        $payment->save();
+
+        $text = headTitle("💳 انتخاب روش پرداخت");
+
+        $text .= "
+
+🛒 <b>خلاصه سفارش شما</b>
+
+📦 <b>نوع سرویس:</b>
+خرید حجم
+
+🌐 <b>حجم انتخابی:</b>
+<code>{$extra->name} گیگابایت</code>
+
+💰 <b>مبلغ قابل پرداخت:</b>
+<code>{$price}</code>
+
+━━━━━━━━━━━━━━━━━━
+
+🔻 لطفاً روش پرداخت مورد نظر خود را انتخاب کنید:";
+
+        $keyboard[] = [
+            [
+                'text' => 'کیف پول',
+                'callback_data' => "type=paymentWallet|id={$payment->id}",
+            ],
+        ];
+
+        $cartBeCart = Setting::where('key', 'cart_be_cart')->first();
+        if (!is_null($cartBeCart) && $cartBeCart->value == 1) {
+            $keyboard[] = [
+                [
+                    'text' => 'کارت به کارت',
+                    'callback_data' => "type=paymentCartBeCart|id={$payment->id}",
+                ],
+            ];
+        }
+
+        $keyboard[] = [
+            [
+                'text' => '🔙 بازگشت',
+                'callback_data' => "type=clientRenewOrder|id={$orderId}",
+            ],
+        ];
+        $data = [
+            'chat_id' => $this->chatId,
+            'text' => trim($text),
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => $keyboard
+            ]),
+        ];
+
+        return $this->sendMessage($data, 'message');
+    }
+
+    protected function clientFinalExtra($data)
+    {
+
+        $payment = Payment::find($data['id']);
+        $targetUser = User::find($payment->user_id);
+
+        $adminMethod = 'toUser';
+        $userMethod = 'toUser';
+
+        $transactionChannel = Setting::where('key', 'cart_be_cart_id')->first();
+        $channelId = (!is_null($transactionChannel) && !empty($transactionChannel->value))
+            ? $transactionChannel->value
+            : optional(User::where('is_admin', 1)->first())->tel_id;
+
+        if (!$channelId) {
+            return $this->sendTemporaryMessage('❌ مقصد ارسال رسید یافت نشد.');
+        }
+        if ($payment->method == 'cart-be-cart') {
+            $caption = "✅ <b>تراکنش تایید شد</b>\n\n⏳ در حال تحویل سفارش به کاربر هستیم...\nلطفاً چند لحظه صبر کنید.";
+
+            $this->sendMessage([
+                'chat_id' => $channelId,
+                'text' => $caption,
+                'parse_mode' => 'HTML',
+            ], 'message');
+            $adminMethod = 'toUser';
+        }
+        if ($payment->method == 'wallet') {
+
+            $caption = "✅ <b>تراکنش تایید شد</b>\n\n⏳ در حال پردازش سفارش هستیم...\nلطفاً چند لحظه صبر کنید.";
+
+            $this->sendMessage([
+                'chat_id' => $targetUser->tel_id,
+                'text' => $caption,
+                'parse_mode' => 'HTML',
+            ], 'message');
+
+            $userMethod = 'edit';
+        }
+
+        $order = Orders::find($payment->order_id);
+
+        $extra = ExtraBandwidth::find($payment->detail['extra-id']);
+        $panel = Panels::find($order->panel_id);
+        $loginData = [
+            'username' => $panel->username,
+            'password' => $panel->password,
+            'url' => $panel->url,
+        ];
+        $session = loginToSanaie($loginData);
+
+        $clientRequestData = [
+            'sessionCookie' => $session['session'],
+            'serverUrl' => $panel->url,
+            'uuid' => $order->uid,
+        ];
+
+        $clientData = getClient($clientRequestData)['obj'][0];
+        $band = gbToByte($extra->name);
+
+
+        $expiryTimestamp = $clientData['expiryTime'];
+
+        $result = [
+            'serverUrl' => $panel->url,
+            'sessionCookie' => $session['session'],
+            'inboundId' => $clientData['inboundId'],
+            'uuid' => $order->uid,
+            'email' => $clientData['email'],
+            'expiryTimestamp' => $expiryTimestamp,
+            'limitIp' => 0,
+            'subId' => $clientData['subId'],
+            'totalGB' => $clientData['total'] + $band,
+        ];
+
+        $result = updateClient($result);
+
+        if ($result['success']) {
+
+            $caption = "خرید حجم سرویس با موفقیت انجام شد.";
+
+            $this->method = 'toUser';
+            $this->sendMessage([
+                'chat_id' => $targetUser->tel_id,
+                'text' => $caption,
+                'parse_mode' => 'HTML',
+                'reply_markup' => json_encode([
+                    'inline_keyboard' => [
+                        [
+                            [
+                                'text' => '📄 جزئیات سفارش',
+                                'callback_data' => "type=clientSingleOrder|id={$order->id}",
+                            ]
+                        ]
+                    ]
+                ]),
+            ], 'message');
+
+
+            $targetUserName = $targetUser->username
+                ? "@{$targetUser->username}"
+                : ($targetUser->first_name ?? 'بدون نام');
+
+            $price = number_format($payment->price);
+            if ($payment->method == 'cart-be-cart') {
+
+                $adminUserName = $this->user->username
+                    ? "@{$this->user->username}"
+                    : ($this->user->first_name ?? 'ادمین');
+
+                $caption = "✅ <b>خرید حجم تایید شد</b>\n\n";
+                $caption .= "━━━━━━━━━━━━━━━\n";
+                $caption .= "👤 <b>کاربر:</b> {$targetUserName}\n";
+                $caption .= "🆔 <b>شناسه تلگرام:</b> <code>{$targetUser->tel_id}</code>\n";
+                $caption .= "━━━━━━━━━━━━━━━\n";
+                $caption .= "💳 <b>جزئیات پرداخت</b>\n";
+                $caption .= "🔢 <b>شماره تراکنش:</b> <code>{$payment->id}</code>\n";
+                $caption .= "💰 <b>مبلغ واریزی:</b> <code>{$price}</code> تومان\n";
+                $caption .= "💰 <b>نوع پرداخت:</b> کارت به کارت \n";
+                $caption .= "━━━━━━━━━━━━━━━\n";
+                $caption .= "👨‍💻 <b>تایید شده توسط:</b> {$adminUserName}\n";
+                $caption .= "📌 <b>وضعیت:</b> موفق\n";
+                $caption .= "━━━━━━━━━━━━━━━\n";
+            } elseif ($payment->method == 'wallet') {
+
+                $this->deleteChat();
+                $caption = "✅ <b>خرید حجم</b>\n\n";
+                $caption .= "━━━━━━━━━━━━━━━\n";
+                $caption .= "👤 <b>کاربر:</b> {$targetUserName}\n";
+                $caption .= "🆔 <b>شناسه تلگرام:</b> <code>{$targetUser->tel_id}</code>\n";
+                $caption .= "━━━━━━━━━━━━━━━\n";
+                $caption .= "💳 <b>جزئیات پرداخت</b>\n";
+                $caption .= "💰 <b>مبلغ واریزی:</b> <code>{$price}</code> تومان\n";
+                $caption .= "💰 <b>نوع پرداخت:</b> کیف پول\n";
+            }
+
+
+            $this->method = $adminMethod;
+            $this->sendMessage([
+                'chat_id' => $channelId,
+                'text' => $caption,
+                'parse_mode' => 'HTML',
+            ], 'message');
+
+        } else {
+            $targetUser->balance = $payment->price + $targetUser->balance;
+            $targetUser->save();
+
+            $caption = "❌ <b>خرید حجم ناموفق بود</b>
+
+متاسفانه عملیات خرید حجم شما با خطا مواجه شد.
+
+💰 مبلغ پرداختی شما به کیف پول بازگردانده شد.
+
+📄 <b>شماره تراکنش:</b> <code>{$payment->id}</code>
+💳 <b>مبلغ بازگشتی:</b> <code>{$payment->price}</code>
+
+✅ موجودی کیف پول شما با موفقیت شارژ شد.";
+
+            $this->method = 'toUser';
+            $this->sendMessage([
+                'chat_id' => $targetUser->tel_id,
+                'text' => $caption,
+                'parse_mode' => 'HTML',
+            ], 'message');
+
+            $caption = "🚨 <b>خطا در پردازش سفارش</b>
+
+❌ خرید حجم ناموفق بود و سرویس ایجاد نشد.
+
+📄 شماره تراکنش: <code>{$payment->id}</code>
+💰 مبلغ: <code>{$payment->price}</code>
+
+🔄 مبلغ به کیف پول کاربر بازگردانده شد.
+✅ عملیات بازگشت وجه با موفقیت انجام شد.";
+            $this->method = $adminMethod;
+            return $this->sendMessage([
+                'chat_id' => $channelId,
+                'text' => $caption,
+                'parse_mode' => 'HTML',
+            ], 'message');
+
+        }
     }
 
 
@@ -4341,16 +5262,13 @@ class TelegramBotController extends Controller
                         $newInbound = new Inbounds();
                         $newInbound->status = $item['enable'] ? 1 : 0;
                     }
-
                     $newInbound->panel_id = $panel->id;
                     $newInbound->inbound_id = $item['id'];
                     $newInbound->port = $item['port'];
                     $newInbound->remark = $item['remark'];
+                    $newInbound->setting = $item;
                     $newInbound->save();
-
                 }
-
-
                 $data = [
                     'callback_query_id' => $this->callbackId,
                     'text' => '✅ اینبوند ها با موفقیت دریافت شدند.',
@@ -7677,26 +8595,17 @@ class TelegramBotController extends Controller
         */
 
         $keyboard = [];
-        $row = [];
 
         foreach ($list as $inbound) {
-
+            $name = $inbound?->panel?->name;
             $statusIcon = $inbound->status ? '🟢' : '🔴';
-
-            $row[] = [
-                'text' => "{$statusIcon} {$inbound->name}:{$inbound->port}",
-                'callback_data' => "type=adminToggleInboundStatus|id={$inbound->id}"
+            $keyboard[][] = [
+                'text' => "{$statusIcon} {$inbound->remark}:{$inbound->port} - نام پنل: {$name}",
+                'callback_data' => "type=adminToggleInboundStatus|id={$inbound->id}|value={$type}"
             ];
 
-            if (count($row) === 2) {
-                $keyboard[] = $row;
-                $row = [];
-            }
         }
 
-        if (!empty($row)) {
-            $keyboard[] = $row;
-        }
 
         /*
         |--------------------------------------------------------------------------
@@ -7739,6 +8648,34 @@ class TelegramBotController extends Controller
 
         return $this->sendMessage($data, 'message');
     }
+
+    protected function adminToggleInboundStatus($data)
+    {
+        $id = $data['id'];
+
+        $inbound = Inbounds::find($id);
+        if ($inbound->status == 0) {
+            $inbound->status = 1;
+            $message = ' `فعال` ';
+        } else {
+            $inbound->status = 0;
+            $message = ' `غیر فعال` ';
+        }
+        $inbound->save();
+
+
+        $this->telegramSdk->answerCallback([
+            'callback_query_id' => $this->callbackId,
+            'text' => "وضعیت اینبوند با موفقیت به {$message}تغییر پیدا کرد. ",
+            'show_alert' => true,
+            'cache_time' => 1,
+        ]);
+
+        return $this->adminInboundList($data);
+
+    }
+
+
 
     /**
      * Admin Area

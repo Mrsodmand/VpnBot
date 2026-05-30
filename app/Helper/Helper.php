@@ -18,9 +18,9 @@ if (!function_exists('loginToSanaie')) {
     {
 
         $panel = Panels::where('url', $data['url'])->first();
-        if (!is_null($panel->detail)) {
+        if (!is_null($panel) && !is_null($panel->detail)) {
             $expire = $panel->detail['Expires'];
-            if ($expire > Carbon::now()) {
+            if (!is_null($expire) && $expire > Carbon::now()) {
                 $Data = [
                     'Domain' => $panel->detail['Domain'],
                     'Path' => $panel->detail['Path'],
@@ -37,7 +37,6 @@ if (!function_exists('loginToSanaie')) {
 
 
         $baseUrl = rtrim($data['url'], '/');
-
         $response = Http::withOptions([
             'verify' => false,
             'curl' => [
@@ -66,21 +65,26 @@ if (!function_exists('loginToSanaie')) {
         $cookies = $response->cookies();
         $sessionCookie = null;
         $Data = [];
+
         foreach ($cookies as $cookie) {
 
             if (str_contains($cookie->getName(), 'session') || str_contains($cookie->getName(), '3x-ui')) {
                 $sessionCookie = $cookie->getName() . '=' . $cookie->getValue();
             }
+            $expire = !is_null($cookie->getExpires()) ? Carbon::createFromTimestamp($cookie->getExpires()) : null;
             $Data = [
                 'Domain' => $cookie->getDomain(),
                 'Path' => $cookie->getPath(),
-                'Expires' => Carbon::createFromTimestamp($cookie->getExpires()),
+                'Expires' => $expire,
                 'session' => $cookie->getName() . '=' . $cookie->getValue(),
                 'cookies' => $cookies,
             ];
         }
-        $panel->detail = $Data;
-        $panel->save();
+        if (!is_null($panel)) {
+            $panel->detail = $Data;
+            $panel->save();
+        }
+
 
         return [
             'status' => true,
@@ -151,6 +155,56 @@ if (!function_exists('createUser')) {
     }
 }
 
+if (!function_exists('createBulkUser')) {
+    function createBulkUser($data)
+    {
+        /*
+          Expected $data:
+          [
+            'url' => 'https://your-server.com',
+            'session' => 'session_cookie_value',
+            'inbound_id' => 1,
+            'email' => 'user@example.com',
+            'uuid' => 'generated-uuid',
+            'total_gb' => 10,
+            'expiry_time' => timestamp (ms),
+          ]
+        */
+
+        $baseUrl = rtrim($data['url'], '/');
+
+        $payload = [
+            "id" => $data['inbound_id'],
+            "settings" => json_encode([
+                "clients" => $data['clients']
+            ], JSON_UNESCAPED_SLASHES),
+        ];
+
+        $response = Http::withOptions([
+            'verify' => false,
+        ])->withHeaders([
+            'Cookie' => $data['session'],
+            'Content-Type' => 'application/json',
+        ])->post($baseUrl . '/panel/api/inbounds/addClient', $payload);
+
+        if (!$response->successful()) {
+            return [
+                'status' => false,
+                'message' => 'Failed to create user',
+                'http_code' => $response->status(),
+                'response' => $response->body(),
+            ];
+        }
+
+        return [
+            'status' => true,
+            'message' => 'User created successfully',
+            'data' => $response->json(),
+        ];
+    }
+}
+
+
 if (!function_exists('getInbounds')) {
 
     function getInbounds($data)
@@ -165,6 +219,38 @@ if (!function_exists('getInbounds')) {
             ->withHeaders([
                 'Cookie' => $data['session'],
             ])->get($baseUrl . '/panel/api/inbounds/list');
+
+        if (!$response->successful()) {
+            return [
+                'status' => false,
+                'message' => 'Failed to fetch inbounds',
+                'http_code' => $response->status(),
+                'response' => $response->body(),
+            ];
+        }
+
+        $result = $response->json();
+        return [
+            'status' => true,
+            'inbounds' => $result['obj'] ?? [],
+        ];
+    }
+}
+
+if (!function_exists('getInbound')) {
+
+    function getInbound($data)
+    {
+        $baseUrl = rtrim($data['url'], '/');
+
+        $response = Http::withOptions([
+            'verify' => false,
+        ])
+            ->timeout(60)
+            ->connectTimeout(20)
+            ->withHeaders([
+                'Cookie' => $data['session'],
+            ])->get($baseUrl . "/panel/api/inbounds/get/{$data['id']}");
 
         if (!$response->successful()) {
             return [
@@ -404,7 +490,6 @@ if (!function_exists('generateVlessConfig')) {
 
 function addClient($data)
 {
-
     $serverUrl = $data['serverUrl'];
     $sessionCookie = $data['sessionCookie'];
     $inboundId = $data['inboundId'];
@@ -445,10 +530,12 @@ function addClient($data)
             "Content-Type: application/x-www-form-urlencoded",
             "Cookie: $sessionCookie"
         ],
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYHOST => false,
+        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
     ]);
 
     $response = curl_exec($ch);
-
     if (curl_errno($ch)) {
         $error = curl_error($ch);
         curl_close($ch);
@@ -463,6 +550,124 @@ function addClient($data)
     return json_decode($response, true);
 }
 
+function updateClient($data)
+{
+    $serverUrl = $data['serverUrl'];
+    $sessionCookie = $data['sessionCookie'];
+
+    $inboundId = $data['inboundId'];
+
+    // شناسه فعلی کاربر داخل پنل
+    // اگر UUID را تغییر نمی دهی، oldUuid و uuid یکی باشند
+    $oldUuid = $data['oldUuid'] ?? $data['uuid'];
+
+    // UUID جدید
+    $uuid = $data['uuid'];
+
+    // ریمارک کاربر در پنل سنایی همان email است
+    $email = $data['email'];
+
+    $expiryTimestamp = $data['expiryTimestamp'] ?? 0; // timestamp ms
+    $limitIp = $data['limitIp'] ?? 0;
+    $subId = $data['subId'] ?? '';
+    $totalGB = $data['totalGB'] ?? 0;
+
+    $enable = $data['enable'] ?? true;
+    $tgId = $data['tgId'] ?? '';
+    $comment = $data['comment'] ?? '';
+    $reset = $data['reset'] ?? 0;
+
+    // برای VLESS Reality یا XTLS ممکنه flow داشته باشی
+    $flow = $data['flow'] ?? '';
+
+    // برای VMess معمولا security نیاز می شود
+    $security = $data['security'] ?? 'auto';
+
+    $url = rtrim($serverUrl, '/') . '/panel/api/inbounds/updateClient/' . urlencode($oldUuid);
+
+    $client = [
+        "id" => $uuid,
+        "email" => $email,
+        "limitIp" => (int)$limitIp,
+        "totalGB" => (int)$totalGB,
+        "expiryTime" => (int)$expiryTimestamp,
+        "enable" => (bool)$enable,
+        "tgId" => (string)$tgId,
+        "subId" => (string)$subId,
+        "comment" => (string)$comment,
+        "reset" => (int)$reset,
+    ];
+
+    /*
+     * فیلدهای اختیاری ولی مهم
+     * اگر خالی باشند هم مشکلی ندارد، اما برای بعضی پروتکل ها لازم می شوند.
+     */
+    if ($flow !== null) {
+        $client["flow"] = $flow;
+    }
+
+    if ($security !== null) {
+        $client["security"] = $security;
+    }
+
+    $postData = [
+        "id" => $inboundId,
+        "settings" => json_encode([
+            "clients" => [
+                $client
+            ]
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+    ];
+
+    $ch = curl_init();
+
+    curl_setopt_array($ch, [
+        CURLOPT_URL => $url,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => http_build_query($postData),
+        CURLOPT_HTTPHEADER => [
+            "Content-Type: application/x-www-form-urlencoded",
+            "Cookie: $sessionCookie"
+        ],
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYHOST => false,
+        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+        CURLOPT_TIMEOUT => 30,
+    ]);
+
+    $response = curl_exec($ch);
+
+    if (curl_errno($ch)) {
+        $error = curl_error($ch);
+        curl_close($ch);
+
+        return [
+            "status" => false,
+            "success" => false,
+            "error" => $error
+        ];
+    }
+
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    $decoded = json_decode($response, true);
+
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        return [
+            "status" => false,
+            "success" => false,
+            "http_code" => $httpCode,
+            "raw" => $response,
+            "error" => "Invalid JSON response from panel"
+        ];
+    }
+
+    $decoded['http_code'] = $httpCode;
+
+    return $decoded;
+}
 
 function getClient($data)
 {
@@ -478,6 +683,9 @@ function getClient($data)
         CURLOPT_URL => $url,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_CUSTOMREQUEST => "GET",
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYHOST => false,
+        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
         CURLOPT_HTTPHEADER => [
             "Content-Type: application/x-www-form-urlencoded",
             "Cookie: $sessionCookie",
@@ -486,6 +694,7 @@ function getClient($data)
     ]);
 
     $response = curl_exec($ch);
+
     if (curl_errno($ch)) {
         $error = curl_error($ch);
         curl_close($ch);
@@ -515,4 +724,191 @@ function gbToByte($gb)
 function daysToMilliseconds($days)
 {
     return $days * 24 * 60 * 60 * 1000;
+}
+
+
+function makeSanaeiVlessConfig($streamSettings, string $uuid, string $remark, array $options = []): string
+{
+
+    $s = is_string($streamSettings)
+        ? json_decode($streamSettings, true)
+        : $streamSettings;
+
+    if (!is_array($s)) {
+        throw new InvalidArgumentException('streamSettings is not valid JSON.');
+    }
+
+    $network = strtolower($s['network'] ?? 'tcp');
+    $security = strtolower($s['security'] ?? 'none');
+
+    /*
+     * دقیقا مثل خروجی پنل:
+     * اگر externalProxy وجود داشته باشد، آدرس و پورت اصلی لینک از externalProxy می آید.
+     */
+    $address = null;
+    $port = null;
+
+    if (!empty($s['externalProxy'][0]['dest'])) {
+        $address = $s['externalProxy'][0]['dest'];
+    }
+
+    if (!empty($s['externalProxy'][0]['port'])) {
+        $port = (int)$s['externalProxy'][0]['port'];
+    }
+
+    /*
+     * اگر externalProxy نبود، fallback عادی
+     */
+    if (!$address) {
+        $address = $options['address']
+            ?? $options['host']
+            ?? $s['tlsSettings']['serverName']
+            ?? $s['wsSettings']['host']
+            ?? $s['wsSettings']['headers']['Host']
+            ?? null;
+    }
+
+    if (!$port) {
+        $port = (int)($options['port'] ?? $s['port'] ?? 0);
+    }
+
+    if (!$address) {
+        throw new InvalidArgumentException('Address not found.');
+    }
+
+    if (!$port) {
+        throw new InvalidArgumentException('Port not found.');
+    }
+
+    $params = [];
+
+    /*
+     * ترتیب را شبیه خروجی پنل نگه می داریم:
+     * type, encryption, path, host, security, fp, alpn, sni
+     */
+    $params['type'] = $network;
+    $params['encryption'] = $options['encryption'] ?? 'none';
+
+    /*
+     * Network params
+     */
+    if ($network === 'ws' || $network === 'websocket') {
+        $ws = $s['wsSettings'] ?? [];
+
+        if (!empty($ws['path'])) {
+            $params['path'] = $ws['path'];
+        }
+
+        if (!empty($ws['host'])) {
+            $params['host'] = $ws['host'];
+        } elseif (!empty($ws['headers']['Host'])) {
+            $params['host'] = $ws['headers']['Host'];
+        }
+    }
+
+    if ($network === 'grpc') {
+        $grpc = $s['grpcSettings'] ?? [];
+
+        if (!empty($grpc['serviceName'])) {
+            $params['serviceName'] = $grpc['serviceName'];
+        }
+
+        if (!empty($grpc['authority'])) {
+            $params['authority'] = $grpc['authority'];
+        }
+
+        if (!empty($grpc['multiMode'])) {
+            $params['mode'] = 'multi';
+        }
+    }
+
+    if ($network === 'tcp') {
+        $tcp = $s['tcpSettings'] ?? [];
+        $headerType = $tcp['header']['type'] ?? null;
+
+        if ($headerType === 'http') {
+            $params['headerType'] = 'http';
+
+            if (!empty($tcp['header']['request']['path'][0])) {
+                $params['path'] = $tcp['header']['request']['path'][0];
+            }
+
+            if (!empty($tcp['header']['request']['headers']['Host'][0])) {
+                $params['host'] = $tcp['header']['request']['headers']['Host'][0];
+            }
+        }
+    }
+
+    /*
+     * TLS params
+     */
+    if ($security === 'tls') {
+        $tls = $s['tlsSettings'] ?? [];
+
+        $params['security'] = 'tls';
+
+        if (!empty($tls['settings']['fingerprint'])) {
+            $params['fp'] = $tls['settings']['fingerprint'];
+        } elseif (!empty($tls['fingerprint'])) {
+            $params['fp'] = $tls['fingerprint'];
+        }
+
+        if (!empty($tls['alpn'])) {
+            $params['alpn'] = is_array($tls['alpn'])
+                ? implode(',', $tls['alpn'])
+                : $tls['alpn'];
+        }
+
+        if (!empty($tls['serverName'])) {
+            $params['sni'] = $tls['serverName'];
+        }
+    } elseif ($security === 'reality') {
+        $reality = $s['realitySettings'] ?? [];
+
+        $params['security'] = 'reality';
+
+        if (!empty($reality['serverNames'][0])) {
+            $params['sni'] = $reality['serverNames'][0];
+        }
+
+        if (!empty($reality['settings']['publicKey'])) {
+            $params['pbk'] = $reality['settings']['publicKey'];
+        }
+
+        if (!empty($reality['shortIds'][0])) {
+            $params['sid'] = $reality['shortIds'][0];
+        }
+
+        if (!empty($reality['settings']['fingerprint'])) {
+            $params['fp'] = $reality['settings']['fingerprint'];
+        }
+
+        if (!empty($reality['settings']['mldsa65Verify'])) {
+            $params['pqv'] = $reality['settings']['mldsa65Verify'];
+        }
+
+        /*
+         * پنل برای spx مقدار رندوم می سازد.
+         * برای خروجی ثابت، اگر spiderX داشتی از همان استفاده کن.
+         */
+        if (!empty($reality['settings']['spiderX'])) {
+            $params['spx'] = $reality['settings']['spiderX'];
+        }
+    } else {
+        $params['security'] = 'none';
+    }
+
+    $query = http_build_query(
+        array_filter($params, function ($v) {
+            return $v !== null && $v !== '';
+        }),
+        '',
+        '&',
+        PHP_QUERY_RFC3986
+    );
+
+    return 'vless://' . rawurlencode($uuid)
+        . '@' . $address . ':' . $port
+        . '?' . $query
+        . '#' . rawurlencode($remark);
 }
