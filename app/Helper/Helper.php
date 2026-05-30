@@ -71,7 +71,7 @@ if (!function_exists('loginToSanaie')) {
             if (str_contains($cookie->getName(), 'session') || str_contains($cookie->getName(), '3x-ui')) {
                 $sessionCookie = $cookie->getName() . '=' . $cookie->getValue();
             }
-            $expire = !is_null($cookie->getExpires()) ? Carbon::createFromTimestamp($cookie->getExpires()) : null;
+            $expire = !is_null($cookie->getExpires()) ? Carbon::createFromTimestamp($cookie->getExpires())->format('Y-m-d H:i') : null;
             $Data = [
                 'Domain' => $cookie->getDomain(),
                 'Path' => $cookie->getPath(),
@@ -80,6 +80,7 @@ if (!function_exists('loginToSanaie')) {
                 'cookies' => $cookies,
             ];
         }
+
         if (!is_null($panel)) {
             $panel->detail = $Data;
             $panel->save();

@@ -2004,7 +2004,7 @@ class TelegramBotController extends Controller
         $orderDetail = $preOrder->data;
 
         $plan = Plans::find($orderDetail['plan-id']);
-        $panel = Panels::where('country_id', $orderDetail['country-id'])->where('status', 1)->first();
+        $panel = Panels::where('country_id', $orderDetail['country-id'])->where('panel_type',$plan->type)->where('status', 1)->first();
 
         $session['session'] = "";
         if (!is_null($panel)) {
