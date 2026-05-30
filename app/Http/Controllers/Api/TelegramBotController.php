@@ -1656,11 +1656,14 @@ class TelegramBotController extends Controller
 
 
         $payment = Payment::find($paymentId);
+
+        $paymentDetail = $payment->detail;
+        $paymentDetail['cart-number'] = $tel_detail['payment-cart-number'];
+        $paymentDetail['cart-name'] = $tel_detail['payment-cart-name'];
+
+
         $payment->method = 'cart-be-cart';
-        $payment->detail = [
-            'cart-number' => $tel_detail['payment-cart-number'],
-            'cart-name' => $tel_detail['payment-cart-name'],
-        ];
+        $payment->detail = $paymentDetail;
         $payment->save();
 
         $Price = $payment->price;
@@ -2004,7 +2007,7 @@ class TelegramBotController extends Controller
         $orderDetail = $preOrder->data;
 
         $plan = Plans::find($orderDetail['plan-id']);
-        $panel = Panels::where('country_id', $orderDetail['country-id'])->where('panel_type',$plan->type)->where('status', 1)->first();
+        $panel = Panels::where('country_id', $orderDetail['country-id'])->where('panel_type', $plan->type)->where('status', 1)->first();
 
         $session['session'] = "";
         if (!is_null($panel)) {
@@ -2400,14 +2403,14 @@ class TelegramBotController extends Controller
 
         $buttons[] = [
 
-                [
-                    'text' => '🏠 منو اصلی',
-                    'callback_data' => 'type=home|action=delete',
-                ],
-                [
-                    'text' => '🔙 بازگشت',
-                    'callback_data' => 'type=clientOrders|action=delete',
-                ],
+            [
+                'text' => '🏠 منو اصلی',
+                'callback_data' => 'type=home|action=delete',
+            ],
+            [
+                'text' => '🔙 بازگشت',
+                'callback_data' => 'type=clientOrders|action=delete',
+            ],
 
         ];
 
