@@ -9,6 +9,11 @@ class Service extends Model
 {
     use SoftDeletes;
     protected $fillable = [
-        'name' , 'status','id'
+        'name' , 'status','id','price_per_gb'
     ];
+
+    public function countries()
+    {
+        return $this->hasMany(Countries::class,'type');
+    }
 }

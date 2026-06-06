@@ -22,6 +22,17 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'tel_id',
+        'username',
+        'first_name',
+        'last_name',
+        'is_admin',
+        'is_seller',
+        'path',
+        'parent',
+        'balance',
+        'status',
+        'tel_detail',
     ];
 
     /**

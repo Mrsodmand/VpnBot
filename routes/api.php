@@ -5,3 +5,4 @@ use App\Http\Controllers\DefaultController;
 
 Route::get('runDefaultValueForNewProject',[DefaultController::class,'runDefaultValueForNewProject']);
 Route::post('telegram-webhook',[TelegramBotController::class,'index']);
+Route::get('export',[DefaultController::class,'exportData']);

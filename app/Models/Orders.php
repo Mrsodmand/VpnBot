@@ -23,5 +23,7 @@ class Orders extends Model
         'panel_id',
         'inbound_id',
         'detail',
+        'system_type',
+        'expire_at',
     ];
 }

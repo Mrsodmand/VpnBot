@@ -19,20 +19,23 @@ if (!function_exists('loginToSanaie')) {
 
         $panel = Panels::where('url', $data['url'])->first();
         if (!is_null($panel) && !is_null($panel->detail)) {
-            $expire = $panel->detail['Expires'];
-            if (!is_null($expire) && $expire > Carbon::now()) {
-                $Data = [
-                    'Domain' => $panel->detail['Domain'],
-                    'Path' => $panel->detail['Path'],
-                ];
+            if (array_key_exists('Expires',$panel->detail)){
+                $expire = $panel->detail['Expires'];
+                if (!is_null($expire) && $expire > Carbon::now()) {
+                    $Data = [
+                        'Domain' => $panel->detail['Domain'],
+                        'Path' => $panel->detail['Path'],
+                    ];
 
-                return [
-                    'status' => true,
-                    'cookies' => $panel->detail['cookies'],
-                    'session' => $panel->detail['session'],
-                    'raw' => $Data,
-                ];
+                    return [
+                        'status' => true,
+                        'cookies' => $panel->detail['cookies'],
+                        'session' => $panel->detail['session'],
+                        'raw' => $Data,
+                    ];
+                }
             }
+
         }
 
 
