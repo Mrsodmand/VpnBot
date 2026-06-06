@@ -830,7 +830,7 @@ class TelegramBotController extends Controller
         $homePage = Setting::where('key', 'home-page')->first();
         $supportId = Setting::where('key', 'support-id')->first();
 
-        $buttons[][] = ['text' => "📦 سرویس ها", 'callback_data' => 'type=clientService', 'style' => 'success'];
+        $buttons[][] = ['text' => "📦 خرید سرویس", 'callback_data' => 'type=clientService', 'style' => 'success'];
         $buttons[] = [
             ['text' => "📑 سفارشات من", 'callback_data' => 'type=clientOrders'],
             ['text' => "💰 شارژ کیف پول", 'callback_data' => 'type=addFund'],
@@ -1013,13 +1013,13 @@ class TelegramBotController extends Controller
                 ->where('is_default', 1)
                 ->first();
         }
-        if (is_null($card)){
+        if (is_null($card)) {
             $card = Carts::orderby('id', 'desc')
                 ->where('status', 1)
                 ->first();
         }
         $user = $this->user;
-        $amount = (int) str_replace(',', '', $amount);
+        $amount = (int)str_replace(',', '', $amount);
 
         $payment = new Payment();
         $payment->user_id = $user->id;
@@ -1164,12 +1164,8 @@ class TelegramBotController extends Controller
         $list = Service::orderByDesc('id')
             ->paginate(10, ['*'], 'page', $page);
 
-
-        $text = "╔════════════════════╗
-🌍 <b>انتخاب سرویس </b>
-╚════════════════════╝
-
-💡 لطفاً یکی از سرویس زیر را انتخاب کنید:";
+        $text = headTitle("انتخاب سرویس ");
+        $text .= "💡 لطفاً یکی از سرویس زیر را انتخاب کنید:";
 
         $keyboard = [];
         $row = [];
@@ -1247,11 +1243,8 @@ class TelegramBotController extends Controller
             ->paginate(10);
 
 
-        $text = "╔════════════════════╗
-🌍 <b>انتخاب کشور </b>
-╚════════════════════╝
-
-📦 <b>نوع سرویس:</b>
+        $text = headTitle("🌍انتخاب کشور ");
+        $text .= "📦 <b>نوع سرویس:</b>
 <code>{$service->name}</code>
 
 
@@ -1321,10 +1314,8 @@ class TelegramBotController extends Controller
 
         $list = Plans::where('type', $service_id)->where('status', 1)->orderbyDesc('id')->paginate(10);
 
-        $text = "╔════════════════════╗
-🌍 <b>انتخاب تعرفه سرویس</b>
-╚════════════════════╝
-
+        $text = headTitle("🌍انتخاب تعرفه سرویس");
+        $text .= "
 📦 <b>نوع سرویس:</b>
 <code>{$service->name}</code>
 
@@ -1405,10 +1396,8 @@ class TelegramBotController extends Controller
         }
 
         $price = number_format($plan->price);
-        $text = "╔════════════════════╗
-🌍 <b>انتخاب حجم اضافه</b>
-╚════════════════════╝
-
+        $text = headTitle("🌍 انتخاب حجم اضافه ");
+        $text = "
 📦 <b>نوع سرویس:</b>
 <code>{$service->name}</code>
 
@@ -1512,11 +1501,8 @@ class TelegramBotController extends Controller
         }
 
         $price = number_format($plan->price);
-        $text = "╔════════════════════╗
-🌍 <b>انتخاب حجم اضافه</b>
-╚════════════════════╝
-
-📦 <b>نوع سرویس:</b>
+        $text = headTitle("🌍انتخاب تعداد");
+        $text .= "📦 <b>نوع سرویس:</b>
 <code>{$service->name}</code>
 
 🌐 <b>کشور انتخاب‌شده:</b>
@@ -1598,12 +1584,8 @@ class TelegramBotController extends Controller
 
         $this->updatePath('clientFinalStep');
 
-
-        $text = "╔════════════════════╗
-🌍 <b>انتخاب نام کانفیگ</b>
-╚════════════════════╝
-💡 لطفاً نام کانفیگ خود را وارد کنید در غیر اینصورت بر روی دکمه انتخاب خودکار کلیک کنید
-";
+        $text = headTitle("🌍انتخاب نام کانفیگ");
+        $text .= "💡 لطفاً نام کانفیگ خود را وارد کنید در غیر اینصورت بر روی دکمه انتخاب خودکار کلیک کنید";
 
 
         $keyboard[] = [
@@ -1710,10 +1692,8 @@ class TelegramBotController extends Controller
 
         $price = number_format($payment->price);
 
-        $text = "╔════════════════════╗
-🌍 <b>انتخاب نحوه پرداخت</b>
-╚════════════════════╝
-
+        $text = headTitle("🌍 انتخاب نحوه پرداخت");
+        $text = "
 📦 <b>نوع سرویس:</b>
 <code>{$service->name}</code>
 🌐 <b>کشور انتخاب‌شده:</b>
@@ -2797,7 +2777,7 @@ class TelegramBotController extends Controller
         |--------------------------------------------------------------------------
         */
 
-        $text = "📦 <b>لیست سفارش‌ها</b>\n\n";
+        $text = headTitle("📦 لیست سفارش‌ها");
 
         if ($list->count() == 0) {
             $text .= "❌ موردی یافت نشد.";
@@ -2879,6 +2859,10 @@ class TelegramBotController extends Controller
                 'parse_mode' => 'HTML',
             ]);
         }
+
+        $detail = is_array($order->detail)
+            ? $order->detail
+            : json_decode($order->detail, true);
 
         $buttons = [];
 
@@ -2966,16 +2950,17 @@ class TelegramBotController extends Controller
             $totalGb = byteToGb($result['data_limit']);
             $totalUsed = byteToGb($result['used_traffic']);
             $left = $totalGb - $totalUsed;
+            $code = $pasarGuard->getUserConfig($order->uid)['body'];
+            $detail['code'] = $code;
         } else {
             $result = $this->clientGetSanaieSinlgeDetail($panel, $order);
             $totalGb = $result['totalGb'];
             $totalUsed = $result['totalUsed'];
             $left = $result['left'];
+            $code = $order->detail['code'];
         }
         $left = $left > 0 ? $left : 0;
-        $detail = is_array($order->detail)
-            ? $order->detail
-            : json_decode($order->detail, true);
+
 
         $configCodeRaw = $detail['code'] ?? '-';
 
@@ -2997,7 +2982,7 @@ class TelegramBotController extends Controller
          * caption در sendPhoto محدودیت دارد.
          * اگر متن طولانی شد، اول QR را می فرستیم، بعد متن کامل را با sendMessage ارسال می کنیم.
          */
-        $photo = "https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=" . urlencode($subUrl);
+        $photo = "https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=" . urlencode($code);
 
         if (mb_strlen(strip_tags($message), 'UTF-8') <= 900) {
             return $this->telegramSdk->sendPhoto([
@@ -3355,11 +3340,8 @@ class TelegramBotController extends Controller
         $payment->expired_at = Carbon::now()->addMinutes(10);
         $payment->save();
 
-        $text = "╔════════════════════╗
-🌍 <b>انتخاب نحوه پرداخت</b>
-╚════════════════════╝
-
-🌐 <b>تعرفه انتخاب شده انتخاب‌شده:</b>
+        $text = headTitle("🌍انتخاب نحوه پرداخت")
+        $text .= "🌐 <b>تعرفه انتخاب شده انتخاب‌شده:</b>
 <code>{$plan->name} | حجم: {$plan->bandwidth} GB | مبلغ:{$price} تومان</code>
 
 
@@ -4212,11 +4194,11 @@ class TelegramBotController extends Controller
     protected function profile()
     {
         $user = $this->user;
-        $text = "
-👤 *Your Profile*
+        $balance = number_format($user->balance);
+        $text = headTitle("حساب کاربری");
+        $text .= "🆔 آیدی تلگرام: `{$user->tel_id}`";
+        $text .= "🆔 موجودی: `{$balance}`";
 
-🆔 Telegram ID: `{$user->tel_id}`
-";
         $data = [
             'chat_id' => $this->chatId,
             'text' => trim($text),
@@ -4301,11 +4283,8 @@ class TelegramBotController extends Controller
             ],
         ];
 
+        $text = headTitle("👑 پنل مدیریت ربات");
         $text = "
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-👑 <b>پنل مدیریت ربات</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 ⚙️ مدیریت کاربران، سفارشات، سرویس‌ها،
 پنل‌ها، تراکنش‌ها و تنظیمات سیستم
 
@@ -4380,9 +4359,7 @@ class TelegramBotController extends Controller
         |--------------------------------------------------------------------------
         */
 
-        $text = "━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
-        $text .= "👥 <b>مدیریت کاربران</b>\n";
-        $text .= "━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
+        $text = headTitle("👥مدیریت کاربران");
         $text .= "
 🔎 جستجو بر اساس:
 • آیدی تلگرام
@@ -4591,10 +4568,7 @@ class TelegramBotController extends Controller
         |--------------------------------------------------------------------------
         */
 
-        $text = "━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
-        $text .= "👤 <b>پروفایل کاربر</b>\n";
-        $text .= "━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
-
+        $text = headTitle("👤پروفایل کاربر");
 
         $text .= "🪪 <b>نام کامل:</b>\n";
         $text .= "<code>{$fullName}</code>\n\n";
@@ -5173,10 +5147,7 @@ class TelegramBotController extends Controller
 
         $discount = $telDetail['discount'] ?? 0;
 
-        $text = "╔════════════════════╗\n";
-        $text .= "   🎯 درصد تخفیف فروشنده\n";
-        $text .= "╚════════════════════╝\n\n";
-
+        $text = headTitle("🎯 درصد تخفیف فروشنده");
         $text .= "💰 تخفیف فعلی: <code>{$discount}%</code>\n\n";
 
         $text .= "✏️ لطفا درصد تخفیفی که می‌خواهید\n";
@@ -5267,10 +5238,7 @@ class TelegramBotController extends Controller
         |--------------------------------------------------------------------------
         */
 
-        $text = "╔════════════════════╗\n";
-        $text .= "   🎯 تخفیف فروشنده بروزرسانی شد\n";
-        $text .= "╚════════════════════╝\n\n";
-
+        $text = headTitle(" 🎯 تخفیف فروشنده بروزرسانی شد");
         $text .= "💰 مقدار تخفیف:\n<code>{$discount}%</code>\n\n";
         $text .= "✅ با موفقیت ذخیره شد";
 
@@ -5339,9 +5307,7 @@ class TelegramBotController extends Controller
 
         $username = $user->username ? "@{$user->username}" : '—';
 
-        $text = "╔════════════════════╗\n";
-        $text .= "   🌐 اینباندهای فروشنده\n";
-        $text .= "╚════════════════════╝\n\n";
+        $text = headTitle("🌐 اینباندهای فروشنده");
 
         $text .= "👤 کاربر:\n<code>{$username}</code>\n\n";
 
@@ -5643,10 +5609,7 @@ class TelegramBotController extends Controller
 
         $buttons[] = $this->adminFooterButtons();
 
-        $text = "╔════════════════════╗\n";
-        $text .= "     ⚙️ مدیریت سرویس‌ها\n";
-        $text .= "╚════════════════════╝\n\n";
-
+        $text = headTitle(" ⚙️ مدیریت سرویس‌ها");
         $text .= "از این بخش می‌توانید:\n\n";
 
         $text .= "🌍 کشورها را مدیریت کنید\n";
@@ -5734,7 +5697,7 @@ class TelegramBotController extends Controller
         |--------------------------------------------------------------------------
         */
 
-        $text = "🖥 <b>مدیریت پنل‌ها</b>\n\n";
+        $text = headTitle("🖥 مدیریت پنل‌ها");
 
         $text .= "📌 وضعیت پنل‌ها:\n";
         $text .= "🟢 فعال = پنل در حال کار و قابل استفاده\n";
@@ -5784,7 +5747,7 @@ class TelegramBotController extends Controller
             $fields['country_id'] = ['label' => 'کشور', 'value' => $panel->country_id];
         }
 
-        $text = "📋 <b>جزئیات پنل</b>\n\n";
+        $text = headTitle("📋 جزئیات پنل");
 
         $keyboard = [];
         $row = [];
