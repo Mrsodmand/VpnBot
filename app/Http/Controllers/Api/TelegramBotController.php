@@ -1781,7 +1781,6 @@ class TelegramBotController extends Controller
             return $this->sendTemporaryMessage('❌ پرداخت پیدا نشد');
         }
 
-        $cartBeCartText = Setting::where('key', 'cart_be_cart_text')->first();
         $cartBeCartRandom = Setting::where('key', 'cart_be_cart_random')->first();
 
         $isRandom = ($cartBeCartRandom && (int)$cartBeCartRandom->value === 1);
@@ -1813,17 +1812,26 @@ class TelegramBotController extends Controller
         $user->tel_detail = $tel_detail;
         $user->save();
 
+        $support = Setting::where('key', 'support_id')->first();
 
-        $rialPrice = $price * 10;
-        $cartText = $cartBeCartText->value ?? '';
 
-        $text = headTitle('💳 پرداخت کارت به کارت');
-        $text .= "\n" . $cartText . "\n";
-        $text .= "💰 مبلغ: <b>{$price}</b> تومان\n";
-        $text .= "💰 معادل: <b>{$rialPrice}</b> ریال\n\n";
-        $text .= "💳 شماره کارت:\n<code>{$cardNumber}</code>\n";
-        $text .= "👤 نام صاحب کارت:\n<b>{$cardName}</b>\n\n";
-        $text .= "📩 پس از واریز، رسید خود را ارسال کنید.";
+        $rialAmount = number_format($price * 10);
+        $amount = number_format($price);
+        $text = "درخواست شما ثبت شد.
+👝 مبلغ سفارش : <code>{$amount}</code> تومان
+معادل: <code>{$rialAmount}</code> ریال
+
+🔘 جهت تکمیل سفارش مبلغ فاکتور را به تومان به شماره کارت زیر واریز نموده و پس از واریز تصویر فیش را در همین مرحله برای ربات ارسال نمایید :
+
+💳 <code> {$cardNumber} </code>
+👤 به نام {$cardName}
+
+⚠️ دقت داشته باشید که :
+فیش واریزی رو فقط یــکبار ارسال کنید، درصورت ارسال مجدد تراکنش تایید نمی‌شود.
+پس از بررسی توسط حساب‌داری ربات و تایید فیش ارسال شده اشتراک بصورت اتوماتیک برای شما ارسال خواهد شد.
+
+چنانچه در پرداخت خود با مشکل مواجه شدید، به پشتیبانی مراجعه کنید :
+📞 @{$support->value}";
 
 
         $buttons[] = [
