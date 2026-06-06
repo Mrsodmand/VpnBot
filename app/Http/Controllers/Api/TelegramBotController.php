@@ -898,7 +898,7 @@ class TelegramBotController extends Controller
         }
 
         if (!is_null($cartBeCart) && $cartBeCart->value == 1) {
-            $buttons[][] = ['text' => "📦 کارت به گارت", 'callback_data' => 'type=addFundStepOne|value=Cart'];
+            $buttons[][] = ['text' => "📦 کارت به کارت", 'callback_data' => 'type=addFundStepOne|value=Cart'];
         }
 
         if (!is_null($crypto) && $crypto->value == 1) {
@@ -1708,6 +1708,7 @@ class TelegramBotController extends Controller
         $payment->expired_at = Carbon::now();
         $payment->save();
 
+        $price = number_format($payment->price);
 
         $text = "╔════════════════════╗
 🌍 <b>انتخاب نحوه پرداخت</b>
@@ -1715,17 +1716,17 @@ class TelegramBotController extends Controller
 
 📦 <b>نوع سرویس:</b>
 <code>{$service->name}</code>
-
 🌐 <b>کشور انتخاب‌شده:</b>
 <code>{$country->name}</code>
-
 🌐 <b>تعرفه انتخاب شده انتخاب‌شده:</b>
 <code>{$plan->name} | حجم: {$plan->bandwidth} GB | مبلغ:{$price} تومان</code>
 
 {$extraText}
 
-🌐 <b>تعداد انتخاب‌شده:</b>
+🌐 <b>تعداد انتخاب ‌شده:</b>
 <code>{$count} عدد</code>
+💵 <b>مبلغ کل:</b>
+<code>{$price} تومان</code>
 
 💡 نحوه پرداخت را مشخص کنید:";
 
