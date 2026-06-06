@@ -445,7 +445,7 @@ class TelegramBotController extends Controller
             case "adminPasarGuardGroups":
                 return $this->adminPasarGuardGroups($type);
                 break;
-            case "adminPasarGuardGroupDetail":
+            case "AdminPGGDA":
                 return $this->adminPasarGuardGroupDetail($type);
                 break;
             case "adminPasarGuardGroupsEdit":
@@ -9690,10 +9690,11 @@ class TelegramBotController extends Controller
         $id = $data['id'] ?? null;
         $page = $data['page'] ?? 1;
 
+
         $path = null;
         if (!is_null($id)) {
             $panels = [$id];
-            $path = "|back=true|value-id=$id";
+            $path = "|b=true|v_id=$id";
         } else {
             $panels = Panels::where('system_type', 'pasarguard');
             $panels = $panels->pluck('id')->toArray();
@@ -9716,7 +9717,7 @@ class TelegramBotController extends Controller
             $statusIcon = $inbound->status == 1 ? '🟢' : '🔴';
             $keyboard[][] = [
                 'text' => "{$statusIcon} {$inbound->remark}:{$inbound->port} - نام پنل: {$name}",
-                'callback_data' => "type=adminPasarGuardGroupDetail|id={$inbound->id}|value={$type}{$path}"
+                'callback_data' => "type=AdminPGGDA|id={$inbound->id}|value={$type}{$path}"
             ];
         }
 
@@ -9735,7 +9736,6 @@ class TelegramBotController extends Controller
         } else {
             $keyboard[] = $this->adminFooterButtons('type=adminInbounds');
         }
-
         $data = [
             'chat_id' => $this->chatId,
             'text' => trim($text),
@@ -9744,15 +9744,14 @@ class TelegramBotController extends Controller
                 'inline_keyboard' => $keyboard
             ]),
         ];
-
         return $this->sendMessage($data, 'message');
     }
 
     protected function adminPasarGuardGroupDetail($data)
     {
         $id = $data['id'];
-        $back = $data['back'] ?? null;
-        $value = $data['value-id'] ?? null;
+        $back = $data['b'] ?? null;
+        $value = $data['v_id'] ?? null;
 
         $plan = Inbounds::find($id);
 
@@ -9902,7 +9901,7 @@ class TelegramBotController extends Controller
         $text .= "📌 مقدار قبلی: <code>" . htmlspecialchars((string)$oldValue) . "</code>";
 
 
-        $keyboard[] = $this->adminFooterButtons("type=adminPasarGuardGroupDetail|id={$id}");
+        $keyboard[] = $this->adminFooterButtons("type=AdminPGGDA|id={$id}");
 
         $data = [
             'chat_id' => $this->chatId,
@@ -9952,7 +9951,7 @@ class TelegramBotController extends Controller
 
         $text = "فیلد `{$fields[$key]['label']}` با موفقیت ویرایش شد.";
 
-        $keyboard[] = $this->adminFooterButtons("type=adminPasarGuardGroupDetail|id={$id}");
+        $keyboard[] = $this->adminFooterButtons("type=AdminPGGDA|id={$id}");
 
         $data = [
             'chat_id' => $this->chatId,
