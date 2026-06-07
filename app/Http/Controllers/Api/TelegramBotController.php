@@ -8,6 +8,7 @@ use App\Models\Carts;
 use App\Models\Countries;
 use App\Models\ExtraBandwidth;
 use App\Models\Inbounds;
+use App\Models\Message;
 use App\Models\Orders;
 use App\Models\Panels;
 use App\Models\Payment;
@@ -1339,7 +1340,7 @@ class TelegramBotController extends Controller
                 $keyboard[] = [
 
                     [
-                        'text' => "{$name} | حجم: {$item->bandwidth} گیگ | مبلغ:$price T",
+                        'text' => "{$name} | مبلغ:$price T",
                         'callback_data' => "type=$path|s_id={$service->id}|co_id={$country->id}|pl_id={$item->id}",
                     ],
                 ];
@@ -3340,7 +3341,7 @@ class TelegramBotController extends Controller
         $payment->expired_at = Carbon::now()->addMinutes(10);
         $payment->save();
 
-        $text = headTitle("🌍انتخاب نحوه پرداخت")
+        $text = headTitle("🌍انتخاب نحوه پرداخت");
         $text .= "🌐 <b>تعرفه انتخاب شده انتخاب‌شده:</b>
 <code>{$plan->name} | حجم: {$plan->bandwidth} GB | مبلغ:{$price} تومان</code>
 
@@ -10094,9 +10095,19 @@ class TelegramBotController extends Controller
 
         return $this->adminChargeAmount($data);
     }
+
+
+    protected function adminMessage($data)
+    {
+        $message = Message::ordebyDesc('id')->paginate(10);
+
+    }
+
     /**
      * Admin Area
      */
+
+
 
 
     // Default Values

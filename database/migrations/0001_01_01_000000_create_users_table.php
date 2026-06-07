@@ -23,7 +23,7 @@ return new class extends Migration
             $table->string('parent')->default(0);
             $table->integer('balance')->default(0);
             $table->integer('status')->default(0);
-            $table->json('tel_detail')->default(0);
+            $table->json('tel_detail')->nullable();
             $table->rememberToken();
             $table->timestamps();
         });
