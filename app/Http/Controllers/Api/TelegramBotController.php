@@ -44,6 +44,7 @@ class TelegramBotController extends Controller
     protected $isSeller;
     protected $isAdmin;
     protected $from;
+    protected $isJoined = false;
 
 
     public function __construct(Request $request)
@@ -490,11 +491,12 @@ class TelegramBotController extends Controller
         $telData->tel_id = $this->chatId;
         $telData->path = $this->text;
         $telData->save();
-
-
         $this->method = 'toUser';
         switch ($this->text) {
             case '/start':
+                if ($this->isAdmin) {
+                    return $this->adminMenu(['id' => null]);
+                }
                 return $this->home();
                 break;
             case '/connectAccount':
@@ -607,6 +609,24 @@ class TelegramBotController extends Controller
             $user->save();
         }
         $this->user = $user;
+    }
+
+    private function ifUserIsJoined()
+    {
+        $channel_id = Setting::where('key', 'channel_id')->first();
+        if (is_null($channel_id)) {
+            if ($channel_id->value != 0) {
+
+                $data = [
+                    'chat_id' => '',
+                    'user_id' => '',
+                ];
+                $this->telegramSdk->getChatMember();
+
+
+            }
+        }
+        return $this->isJoined = true;
     }
 
     private function createInlineKeyboard(array $rows): array
@@ -1162,8 +1182,8 @@ class TelegramBotController extends Controller
     {
         $page = $type['page'] ?? 1;
 
-        $plan = Plans::where('type', '!=', null)->where('status',1)->pluck('type')->toArray();
-        $panel = Panels::where('panel_type', '!=', null)->where('status',1)->pluck('type')->toArray();
+        $plan = Plans::where('type', '!=', null)->where('status', 1)->pluck('type')->toArray();
+        $panel = Panels::where('panel_type', '!=', null)->where('status', 1)->pluck('type')->toArray();
 
         $serviceId = array_values(array_unique(array_merge(
             $plan,
@@ -1171,7 +1191,7 @@ class TelegramBotController extends Controller
         )));
 
         $list = Service::orderByDesc('id')
-            ->wherein('id',$serviceId)
+            ->wherein('id', $serviceId)
             ->paginate(10, ['*'], 'page', $page);
 
         $text = headTitle("انتخاب سرویس ");
@@ -2163,7 +2183,7 @@ class TelegramBotController extends Controller
         }
 
         if ($payment->status == 0) {
-//            $payment->status = 1;
+            $payment->status = 1;
             $payment->save();
             return $this->finalPaymentStep($payment);
         }
@@ -2191,7 +2211,7 @@ class TelegramBotController extends Controller
 
         if ($payment->status == 0) {
             $user->decrement('balance', $payment->price);
-//            $payment->status = 1;
+            $payment->status = 1;
             $payment->method = 'wallet';
             $payment->save();
             return $this->finalPaymentStep($payment);
@@ -2243,7 +2263,7 @@ class TelegramBotController extends Controller
                 'text' => $caption,
                 'parse_mode' => 'HTML',
             ], 'message');
-            $adminMethod = 'toUser';
+            $adminMethod = 'edit';
         }
         if ($payment->method == 'wallet') {
 
@@ -2957,7 +2977,7 @@ class TelegramBotController extends Controller
 
         $configCodeRaw = $detail['code'] ?? '-';
 
-        $subUrl = rtrim($panel->sub_address, '/') . '/' . $order->sub_id;
+        $subUrl = rtrim($panel->sub_address, '/') . $order->sub_id;
 
         $configCode = htmlspecialchars($configCodeRaw, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $subUrlSafe = htmlspecialchars($subUrl, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
@@ -4188,24 +4208,23 @@ class TelegramBotController extends Controller
         $balance = number_format($user->balance);
         $text = headTitle("حساب کاربری");
         $text .= "🆔 آیدی تلگرام: `{$user->tel_id}`";
-        $text .= "🆔 موجودی: `{$balance}`";
-
         $data = [
             'chat_id' => $this->chatId,
             'text' => trim($text),
-            'parse_mode' => 'MarkdownV2',
+            'parse_mode' => 'HTML',
             'reply_markup' => json_encode([
                 'inline_keyboard' => [
                     [
-                        ['text' => '💰 Balance', 'callback_data' => 'ignore'],
-                        ['text' => "{$user->balance}", 'callback_data' => 'ignore'],
+                        ['text' => '💰 موجودی', 'callback_data' => 'ignore'],
+                        ['text' => "{$balance}", 'callback_data' => 'ignore'],
                     ],
                     [
-                        ['text' => '⬅️ Back', 'callback_data' => 'type=home'],
+                        ['text' => '⬅️ برگشت', 'callback_data' => 'type=home'],
                     ]
                 ]
             ])
         ];
+        $this->method = 'edit';
         return $this->sendMessage($data, 'message');
     }
 
