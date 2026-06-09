@@ -855,7 +855,7 @@ class TelegramBotController extends Controller
             ];
         }
 
-        if (!is_null($homePage) && !is_null($homePage->value) && $homePage->value != 0) {
+        if (!is_null($homePage) && !is_null($homePage->value)) {
             $text = $homePage->value;
         } else {
             $text = "🚀 به ربات ما خوش آمدید
