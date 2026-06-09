@@ -293,9 +293,9 @@ if (!function_exists('calculateDiscount')) {
 if (!function_exists('headTitle')) {
     function headTitle($title)
     {
-        $text = "━━━━━━━━━━━━━━━━━━\n";
-        $text .= "<b>{$title} </b>\n";
-        $text .= "━━━━━━━━━━━━━━━━━━\n";
+//        $text = "━━━━━━━━━━━━━━━━━━\n";
+        $text = "<b>{$title} </b>\n\n";
+//        $text .= "━━━━━━━━━━━━━━━━━━\n";
         return $text;
     }
 }

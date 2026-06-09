@@ -2,13 +2,13 @@
 
 namespace App\Http\Controllers;
 
-use App\lib\PasarGuard;
 use App\Models\Inbounds;
-use App\Models\Orders;
-use App\Models\Panels;
 use App\Models\Service;
 use App\Models\Setting;
 use App\Models\User;
+use App\Models\Orders;
+use App\Models\Panels;
+use App\lib\PasarGuard;
 use Carbon\Carbon;
 
 class DefaultController extends Controller
@@ -27,7 +27,10 @@ class DefaultController extends Controller
             'support_id' => 'آیدی پشتیبانی',
             'report_id' => 'آیدی کانال تراکنش ها',
             'cart_be_cart_id' => 'آیدی کانال کارت به کارت',
+            'channel_id' => 'آیدی کانال',
+            'site_address' => 'آدرس سایت',
             'charge_amount' => 'مبالغ شارژ کیف پول',
+            'home-page' => 'متن منو',
         ];
 
         $dataMap = [];
@@ -95,6 +98,10 @@ class DefaultController extends Controller
 //            if (empty($user['user_id'])) {
 //                continue;
 //            }
+//            $check = User::where('tel_id', $user['user_id'])->first();
+//            if (!is_null($check)) {
+//                continue;
+//            }
 //            User::updateOrCreate(
 //                [
 //                    'tel_id' => $user['user_id'],
@@ -105,13 +112,43 @@ class DefaultController extends Controller
 //                        : null,
 //
 //                    'balance' => isset($user['balance'])
-//                        ? (float) $user['balance']
+//                        ? (float)$user['balance'].'000'
 //                        : 0,
 //
 //                    'status' => 1,
 //                ]
 //            );
+//
 //        }
+//
+//        $filePath = base_path('oldData/bot_user.json');
+//        $json = file_get_contents($filePath);
+//        $users = json_decode($json, true);
+//        if (json_last_error() !== JSON_ERROR_NONE) {
+//            dd('JSON Error: ' . json_last_error_msg());
+//        }
+//
+//        foreach ($users as $user) {
+//            if (empty($user['user_id'])) {
+//                continue;
+//            }
+//            $check = User::where('tel_id', $user['user_id'])->first();
+//            if (!is_null($check)) {
+//                continue;
+//            }
+//            User::updateOrCreate(
+//                [
+//                    'tel_id' => $user['user_id'],
+//                ],
+//                [
+//                    'username' => !empty($user['name'])
+//                        ? ltrim($user['name'], '@')
+//                        : null,
+//                    'status' => 1,
+//                ]
+//            );
+//        }
+
 
 //        $filePath = base_path('oldData/plans.json');
 //        $json = file_get_contents($filePath);

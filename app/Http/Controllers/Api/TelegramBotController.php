@@ -829,7 +829,7 @@ class TelegramBotController extends Controller
     {
         $user = $this->user;
         $homePage = Setting::where('key', 'home-page')->first();
-        $supportId = Setting::where('key', 'support-id')->first();
+        $supportId = Setting::where('key', 'support_id')->first();
 
         $buttons[][] = ['text' => "📦 خرید سرویس", 'callback_data' => 'type=clientService', 'style' => 'success'];
         $buttons[] = [
@@ -840,7 +840,7 @@ class TelegramBotController extends Controller
         if (!is_null($supportId) && !is_null($supportId->value)) {
             $buttons[] = [
                 ['text' => "👤 حساب کاربری", 'callback_data' => 'type=profile'],
-                ['text' => "🌐 پشتیبانی", 'url' => $supportId->value],
+                ['text' => "🌐 پشتیبانی", 'url' => "https://t.me/$supportId->value"],
             ];
         } else {
             $buttons[] = [
@@ -855,7 +855,7 @@ class TelegramBotController extends Controller
             ];
         }
 
-        if (!is_null($homePage) && !is_null($homePage->value)) {
+        if (!is_null($homePage) && !is_null($homePage->value) && $homePage->value != 0) {
             $text = $homePage->value;
         } else {
             $text = "🚀 به ربات ما خوش آمدید
@@ -1162,7 +1162,16 @@ class TelegramBotController extends Controller
     {
         $page = $type['page'] ?? 1;
 
+        $plan = Plans::where('type', '!=', null)->where('status',1)->pluck('type')->toArray();
+        $panel = Panels::where('panel_type', '!=', null)->where('status',1)->pluck('type')->toArray();
+
+        $serviceId = array_values(array_unique(array_merge(
+            $plan,
+            $panel
+        )));
+
         $list = Service::orderByDesc('id')
+            ->wherein('id',$serviceId)
             ->paginate(10, ['*'], 'page', $page);
 
         $text = headTitle("انتخاب سرویس ");
@@ -1260,7 +1269,7 @@ class TelegramBotController extends Controller
                 $name = !is_null($country->name) ? $country->name : 'بدون نام';
                 $row[] = [
                     'text' => "{$name}",
-                    'callback_data' => "type=clientSelectPlan|s_id={$country->id}|co_id={$country->id}",
+                    'callback_data' => "type=clientSelectPlan|s_id={$service->id}|co_id={$country->id}",
                 ];
                 if (count($row) === 2) {
                     $keyboard[] = $row;
@@ -1313,16 +1322,14 @@ class TelegramBotController extends Controller
             $allowSellExtra = false;
         }
 
-        $list = Plans::where('type', $service_id)->where('status', 1)->orderbyDesc('id')->paginate(10);
+        $list = Plans::where('type', $service_id)->where('status', 1)->orderby('id')->paginate(10);
 
         $text = headTitle("🌍انتخاب تعرفه سرویس");
         $text .= "
 📦 <b>نوع سرویس:</b>
 <code>{$service->name}</code>
-
 🌐 <b>کشور انتخاب‌شده:</b>
 <code>{$country->name}</code>
-
 💡 لطفاً یکی از تعرفه‌های زیر را انتخاب کنید:";
 
         $keyboard = [];
@@ -1401,13 +1408,10 @@ class TelegramBotController extends Controller
         $text = "
 📦 <b>نوع سرویس:</b>
 <code>{$service->name}</code>
-
-🌐 <b>کشور انتخاب‌شده:</b>
+🌐 <b>کشور:</b>
 <code>{$country->name}</code>
-
-🌐 <b>تعرفه انتخاب شده انتخاب‌شده:</b>
+🌐 <b>تعرفه:</b>
 <code>{$plan->name} | حجم: {$plan->bandwidth} GB | مبلغ:{$price} تومان</code>
-
 💡 لطفاً یکی از گزینه زیر را انتخاب کنید:";
 
         $list = ExtraBandwidth::where('type', $service_id)->where('status', 1)->paginate(20);
@@ -1505,15 +1509,11 @@ class TelegramBotController extends Controller
         $text = headTitle("🌍انتخاب تعداد");
         $text .= "📦 <b>نوع سرویس:</b>
 <code>{$service->name}</code>
-
-🌐 <b>کشور انتخاب‌شده:</b>
+🌐 <b>کشور:</b>
 <code>{$country->name}</code>
-
-🌐 <b>تعرفه انتخاب شده انتخاب‌شده:</b>
+🌐 <b>تعرفه:</b>
 <code>{$plan->name} | حجم: {$plan->bandwidth} GB | مبلغ:{$price} تومان</code>
-
 {$extraText}
-
 💡 لطفاً تعداد را مشخص کنید:";
 
         $decrement = max(1, $count - 1);
@@ -1695,25 +1695,17 @@ class TelegramBotController extends Controller
 
         $text = headTitle("🌍 انتخاب نحوه پرداخت");
         $text = "
-📦 <b>نوع سرویس:</b>
-<code>{$service->name}</code>
-🌐 <b>کشور انتخاب‌شده:</b>
-<code>{$country->name}</code>
-🌐 <b>تعرفه انتخاب شده انتخاب‌شده:</b>
-<code>{$plan->name} | حجم: {$plan->bandwidth} GB | مبلغ:{$price} تومان</code>
-
+📦 <b>نوع سرویس:</b> <code>{$service->name}</code>
+🌐 <b>کشور:</b> <code>{$country->name}</code>
+🌐 <b>تعرفه:</b> <code>{$plan->name}</code>
 {$extraText}
-
-🌐 <b>تعداد انتخاب ‌شده:</b>
-<code>{$count} عدد</code>
-💵 <b>مبلغ کل:</b>
-<code>{$price} تومان</code>
-
+🌐 <b>تعداد:</b><code>{$count} عدد</code>
+💵 <b>مبلغ کل:</b> <code>{$price} تومان</code>
 💡 نحوه پرداخت را مشخص کنید:";
 
         $keyboard[] = [
             [
-                'text' => 'کیف پول',
+                'text' => '💰 کیف پول',
                 'callback_data' => "type=paymentWallet|id={$payment->id}",
             ],
         ];
@@ -1722,7 +1714,7 @@ class TelegramBotController extends Controller
         if (!is_null($cartBeCart) && $cartBeCart->value == 1) {
             $keyboard[] = [
                 [
-                    'text' => 'کارت به کارت',
+                    'text' => '💳 کارت به کارت',
                     'callback_data' => "type=paymentCartBeCart|id={$payment->id}",
                 ],
             ];
@@ -3342,10 +3334,8 @@ class TelegramBotController extends Controller
         $payment->save();
 
         $text = headTitle("🌍انتخاب نحوه پرداخت");
-        $text .= "🌐 <b>تعرفه انتخاب شده انتخاب‌شده:</b>
+        $text .= "🌐 <b>تعرفه:</b>
 <code>{$plan->name} | حجم: {$plan->bandwidth} GB | مبلغ:{$price} تومان</code>
-
-
 💡 نحوه پرداخت را مشخص کنید:";
 
         $keyboard[] = [
@@ -10106,8 +10096,6 @@ class TelegramBotController extends Controller
     /**
      * Admin Area
      */
-
-
 
 
     // Default Values
