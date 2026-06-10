@@ -2562,13 +2562,23 @@ class TelegramBotController extends Controller
                 $caption .= "🔗<b>ریمـارک‌های تحویل شده:</b>\n{$remarks}";
             }
 
+            if ($this->isPhoto) {
+                $this->telegramSdk->editCaption([
+                    'chat_id' => $channelId,
+                    'message_id' => $this->messageId,
+                    'caption' => $caption,
+                    'parse_mode' => 'HTML',
+                ]);
+            } else {
+                $this->method = $adminMethod;
+                $this->sendMessage([
+                    'chat_id' => $channelId,
+                    'text' => $caption,
+                    'parse_mode' => 'HTML',
+                ], 'message');
+            }
 
-            $this->method = $adminMethod;
-            $this->sendMessage([
-                'chat_id' => $channelId,
-                'text' => $caption,
-                'parse_mode' => 'HTML',
-            ], 'message');
+
 
         } else {
             $session['session'] = "";
