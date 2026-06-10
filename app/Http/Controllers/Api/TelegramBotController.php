@@ -634,7 +634,7 @@ class TelegramBotController extends Controller
         }
         return $this->isJoined = true;
     }
-x
+
     private function createInlineKeyboard(array $rows): array
     {
         $keyboard = ['inline_keyboard' => []];
