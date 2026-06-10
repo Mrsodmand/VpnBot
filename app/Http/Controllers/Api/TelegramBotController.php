@@ -1156,12 +1156,21 @@ class TelegramBotController extends Controller
             $userCaption = "✅ تراکنش شارژ کیف پول شما با موفقیت تایید شد.\n💰 موجودی فعلی شما: {$balance} تومان";
         }
 
-        $this->method = $adminMethod;
-        $this->sendMessage([
-            'chat_id' => $channelId,
-            'text' => $caption,
-            'parse_mode' => 'HTML',
-        ], 'message');
+        if ($this->isPhoto) {
+            $this->telegramSdk->editCaption([
+                'chat_id' => $channelId,
+                'message_id' => $this->messageId,
+                'caption' => $caption,
+                'parse_mode' => 'HTML',
+            ]);
+        } else {
+            $this->method = $adminMethod;
+            $this->sendMessage([
+                'chat_id' => $channelId,
+                'text' => $caption,
+                'parse_mode' => 'HTML',
+            ], 'message');
+        }
 
         $this->method = 'toUser';
         $this->sendMessage([
@@ -2302,6 +2311,7 @@ class TelegramBotController extends Controller
                     'parse_mode' => 'HTML',
                 ]);
             } else {
+                $this->method = $adminMethod;
                 $this->sendMessage([
                     'chat_id' => $channelId,
                     'text' => $caption,
@@ -2807,13 +2817,21 @@ class TelegramBotController extends Controller
                 $caption .= "👨‍💻 <b>ریمـارک‌های تحویل شده:</b>\n{$remarks}";
             }
 
-
-            $this->method = $adminMethod;
-            $this->sendMessage([
-                'chat_id' => $channelId,
-                'text' => $caption,
-                'parse_mode' => 'HTML',
-            ], 'message');
+            if ($this->isPhoto) {
+                $this->telegramSdk->editCaption([
+                    'chat_id' => $channelId,
+                    'message_id' => $this->messageId,
+                    'caption' => $caption,
+                    'parse_mode' => 'HTML',
+                ]);
+            } else {
+                $this->method = $adminMethod;
+                $this->sendMessage([
+                    'chat_id' => $channelId,
+                    'text' => $caption,
+                    'parse_mode' => 'HTML',
+                ], 'message');
+            }
         }
     }
 
@@ -3467,11 +3485,21 @@ class TelegramBotController extends Controller
         if ($payment->method == 'cart-be-cart') {
             $caption = "✅ <b>تراکنش تایید شد</b>\n\n⏳ در حال تحویل سفارش به کاربر هستیم...\nلطفاً چند لحظه صبر کنید.";
             $adminMethod = 'edit';
-            $this->sendMessage([
-                'chat_id' => $channelId,
-                'text' => $caption,
-                'parse_mode' => 'HTML',
-            ], 'message');
+            if ($this->isPhoto) {
+                $this->telegramSdk->editCaption([
+                    'chat_id' => $channelId,
+                    'message_id' => $this->messageId,
+                    'caption' => $caption,
+                    'parse_mode' => 'HTML',
+                ]);
+            } else {
+                $this->method = 'edit';
+                $this->sendMessage([
+                    'chat_id' => $channelId,
+                    'text' => $caption,
+                    'parse_mode' => 'HTML',
+                ], 'message');
+            }
         }
         if ($payment->method == 'wallet') {
 
@@ -3591,14 +3619,21 @@ class TelegramBotController extends Controller
                 }
 
 
-                $this->method = $adminMethod;
-                $this->sendMessage([
-                    'chat_id' => $channelId,
-                    'text' => $caption,
-                    'parse_mode' => 'HTML',
-                ], 'message');
-
-
+                if ($this->isPhoto) {
+                    $this->telegramSdk->editCaption([
+                        'chat_id' => $channelId,
+                        'message_id' => $this->messageId,
+                        'caption' => $caption,
+                        'parse_mode' => 'HTML',
+                    ]);
+                } else {
+                    $this->method = $adminMethod;
+                    $this->sendMessage([
+                        'chat_id' => $channelId,
+                        'text' => $caption,
+                        'parse_mode' => 'HTML',
+                    ], 'message');
+                }
             } else {
 
                 $targetUser->balance = $payment->price + $targetUser->balance;
@@ -3742,12 +3777,21 @@ class TelegramBotController extends Controller
                 }
 
 
-                $this->method = $adminMethod;
-                $this->sendMessage([
-                    'chat_id' => $channelId,
-                    'text' => $caption,
-                    'parse_mode' => 'HTML',
-                ], 'message');
+                if ($this->isPhoto) {
+                    $this->telegramSdk->editCaption([
+                        'chat_id' => $channelId,
+                        'message_id' => $this->messageId,
+                        'caption' => $caption,
+                        'parse_mode' => 'HTML',
+                    ]);
+                } else {
+                    $this->method = $adminMethod;
+                    $this->sendMessage([
+                        'chat_id' => $channelId,
+                        'text' => $caption,
+                        'parse_mode' => 'HTML',
+                    ], 'message');
+                }
 
             } else {
                 $targetUser->balance = $payment->price + $targetUser->balance;
@@ -3950,13 +3994,23 @@ class TelegramBotController extends Controller
         }
         if ($payment->method == 'cart-be-cart') {
             $caption = "✅ <b>تراکنش تایید شد</b>\n\n⏳ در حال تحویل سفارش به کاربر هستیم...\nلطفاً چند لحظه صبر کنید.";
-
-            $this->sendMessage([
-                'chat_id' => $channelId,
-                'text' => $caption,
-                'parse_mode' => 'HTML',
-            ], 'message');
             $adminMethod = 'edit';
+
+            if ($this->isPhoto) {
+                $this->telegramSdk->editCaption([
+                    'chat_id' => $channelId,
+                    'message_id' => $this->messageId,
+                    'caption' => $caption,
+                    'parse_mode' => 'HTML',
+                ]);
+            } else {
+                $this->method = $adminMethod;
+                $this->sendMessage([
+                    'chat_id' => $channelId,
+                    'text' => $caption,
+                    'parse_mode' => 'HTML',
+                ], 'message');
+            }
         }
         if ($payment->method == 'wallet') {
 
@@ -4064,14 +4118,21 @@ class TelegramBotController extends Controller
                     $caption .= "💰 <b>نوع پرداخت:</b> کیف پول\n";
                 }
 
-
-                $this->method = $adminMethod;
-                $this->sendMessage([
-                    'chat_id' => $channelId,
-                    'text' => $caption,
-                    'parse_mode' => 'HTML',
-                ], 'message');
-
+                if ($this->isPhoto) {
+                    $this->telegramSdk->editCaption([
+                        'chat_id' => $channelId,
+                        'message_id' => $this->messageId,
+                        'caption' => $caption,
+                        'parse_mode' => 'HTML',
+                    ]);
+                } else {
+                    $this->method = $adminMethod;
+                    $this->sendMessage([
+                        'chat_id' => $channelId,
+                        'text' => $caption,
+                        'parse_mode' => 'HTML',
+                    ], 'message');
+                }
             } else {
 
                 $targetUser->balance = $payment->price + $targetUser->balance;
@@ -4207,12 +4268,21 @@ class TelegramBotController extends Controller
                 }
 
 
-                $this->method = $adminMethod;
-                $this->sendMessage([
-                    'chat_id' => $channelId,
-                    'text' => $caption,
-                    'parse_mode' => 'HTML',
-                ], 'message');
+                if ($this->isPhoto) {
+                    $this->telegramSdk->editCaption([
+                        'chat_id' => $channelId,
+                        'message_id' => $this->messageId,
+                        'caption' => $caption,
+                        'parse_mode' => 'HTML',
+                    ]);
+                } else {
+                    $this->method = $adminMethod;
+                    $this->sendMessage([
+                        'chat_id' => $channelId,
+                        'text' => $caption,
+                        'parse_mode' => 'HTML',
+                    ], 'message');
+                }
 
             } else {
                 $targetUser->balance = $payment->price + $targetUser->balance;
