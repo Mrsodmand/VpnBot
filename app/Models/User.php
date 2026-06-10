@@ -58,4 +58,9 @@ class User extends Authenticatable
             'tel_detail' => 'array',
         ];
     }
+
+    public function orders()
+    {
+        return $this->hasMany(Orders::class);
+    }
 }

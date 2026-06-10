@@ -48,6 +48,7 @@ class TelegramBotController extends Controller
     protected $isPhoto = false;
     protected $fileId = false;
     protected $file_unique_id;
+    protected $customData = [];
 
 
     public function __construct(Request $request)
@@ -56,6 +57,7 @@ class TelegramBotController extends Controller
 
         $telData = new TelegramData();
         $telData->data = json_encode($data);
+        $telData->path = 'before';
         $telData->save();
 
         $this->token = env('TELEGRAM_BOT_TOKEN');
@@ -89,6 +91,14 @@ class TelegramBotController extends Controller
             } elseif (array_key_exists('text', $data['callback_query']['message'])) {
                 $this->text = PersianNumToEn($data['callback_query']['message']['text']);
             }
+        } elseif (array_key_exists('my_chat_member', $data)) {
+            $this->chatId = $data['my_chat_member']['chat']['id'];
+            $this->customData = [
+                'oldStatus' => $data['my_chat_member']['old_chat_member']['status'],
+                'newStatus' => $data['my_chat_member']['new_chat_member']['status'],
+                $this->type = 'my_chat_member'
+
+            ];
         }
 
         $this->telData = $data;
@@ -109,6 +119,9 @@ class TelegramBotController extends Controller
             case "text":
                 $this->method = 'send';
                 return $this->NormalTextAction();
+                break;
+            case "my_chat_member":
+                return $this->checkChatMember();
                 break;
         }
     }
@@ -608,6 +621,29 @@ class TelegramBotController extends Controller
         }
     }
 
+    protected function checkChatMember()
+    {
+        $customData = $this->customData;
+
+        if (
+            $customData['oldStatus'] == 'member' &&
+            $customData['newStatus'] == 'kicked'
+        ) {
+            User::where('tel_id', $this->chatId)
+                ->update([
+                    'status' => -2
+                ]);
+        }
+        if (
+            $customData['oldStatus'] == 'kicked' &&
+            $customData['newStatus'] == 'member'
+        ) {
+            User::where('tel_id', $this->chatId)
+                ->update([
+                    'status' =>1
+                ]);
+        }
+    }
 
     // Functions
     private function checkUser()
@@ -2443,7 +2479,7 @@ class TelegramBotController extends Controller
 
             for ($i = 0; $i < $leftCount; $i++) {
 
-                $remarkBase = $orderDetail['name'] !== 'random' ?  $orderDetail['name'] : "user-{$targetUser->tel_id}";
+                $remarkBase = $orderDetail['name'] !== 'random' ? $orderDetail['name'] : "user-{$targetUser->tel_id}";
 
                 $remark = $remarkBase . '-' . rand(1111, 9999);
 
@@ -10264,67 +10300,43 @@ class TelegramBotController extends Controller
         $filter = $data['filter'] ?? null;
         $search = $data['search'] ?? null;
 
-
         $query = Orders::query();
-
-        /*
-        |--------------------------------------------------------------------------
-        | Filters
-        |--------------------------------------------------------------------------
-        */
-
-        switch ($filter) {
-
-            case 'admins':
-                $query->where('is_admin', 1);
-                break;
-
-            case 'resellers':
-                $query->where('is_seller', 1);
-                break;
-
-            case 'normal':
-                $query->where('is_admin', 0)
-                    ->where('is_seller', 0);
-                break;
-        }
 
         /*
         |--------------------------------------------------------------------------
         | Search
         |--------------------------------------------------------------------------
         */
+
         if (!empty($search)) {
-            $users = User::where(function ($q) use ($search) {
-                $q->where('username', 'LIKE', "%{$search}%")
-                    ->orWhere('first_name', 'LIKE', "%{$search}%")
-                    ->orWhere('last_name', 'LIKE', "%{$search}%");
-            })
-                ->pluck('id')
-                ->toArray();
 
-            if (!is_null($users)){
-                $query->whereIn('user_id',$users);
-            }
-            $query->where(function ($q) use ($search, $users) {
-                $q->where('remark', 'LIKE', "%{$search}%")
-                    ->orWhere('uid', 'LIKE', "%{$search}%")
-                    ->orWhere('id', 'LIKE', "%{$search}%");
+            $query->where(function ($q) use ($search) {
+
+                if (is_numeric($search)) {
+                    $q->where('id', (int)$search);
+                }
+
+                $q->orWhere('uid', 'LIKE', "%{$search}%")
+                    ->orWhere('remark', 'LIKE', "%{$search}%")
+                    ->orWhereIn('user_id', function ($userQuery) use ($search) {
+                        $userQuery->select('id')
+                            ->from('users')
+                            ->where('username', 'LIKE', "%{$search}%")
+                            ->orWhere('first_name', 'LIKE', "%{$search}%")
+                            ->orWhere('last_name', 'LIKE', "%{$search}%");
+                    });
             });
+        }
 
+        if (!empty($filter)) {
+            $query->where('status', $filter);
         }
 
         $orders = $query
             ->orderByDesc('id')
             ->paginate(20, ['*'], 'page', $page);
-dd($orders);
-        /*
-        |--------------------------------------------------------------------------
-        | Text
-        |--------------------------------------------------------------------------
-        */
 
-        $text = headTitle("👥لیست سفارشات");
+        $text = headTitle("👥 لیست سفارشات");
         $text .= "
 🔎 جستجو بر اساس:
 • آیدی سفارش
@@ -10332,11 +10344,15 @@ dd($orders);
 • ریمارک
 
 📌 برای مشاهده جزئیات،
-روی کاربر موردنظر کلیک کنید.
+روی سفارش موردنظر کلیک کنید.
 ";
 
         if ($filter) {
             $text .= "📌 فیلتر فعال: <code>{$filter}</code>\n\n";
+        }
+
+        if ($search) {
+            $text .= "🔍 جستجوی فعال: <code>{$search}</code>\n\n";
         }
 
         $keyboard = [];
@@ -10344,19 +10360,17 @@ dd($orders);
 
         /*
         |--------------------------------------------------------------------------
-        | User Buttons
+        | Order Buttons
         |--------------------------------------------------------------------------
         */
 
         foreach ($orders as $order) {
 
-            $btnText = $order->id;
-
+            $btnText = "#" . $order->id;
             $row[] = [
                 'text' => $btnText,
                 'callback_data' => "type=adminOrderDetail|id={$order->id}"
             ];
-
             // دو ستونه
             if (count($row) == 2) {
                 $keyboard[] = $row;
@@ -10364,11 +10378,19 @@ dd($orders);
             }
         }
 
-        // باقی‌مانده
+        // باقی مانده
         if (!empty($row)) {
             $keyboard[] = $row;
         }
 
+        if ($orders->isEmpty()) {
+            $keyboard[] = [
+                [
+                    'text' => 'سفارشی یافت نشد',
+                    'callback_data' => 'ignore'
+                ]
+            ];
+        }
 
         /*
         |--------------------------------------------------------------------------
@@ -10378,38 +10400,44 @@ dd($orders);
 
         $pagination = [];
 
+        $callbackBase = 'type=adminOrdersList';
+
+        if (!empty($filter)) {
+            $callbackBase .= '|filter=' . $filter;
+        }
+
+        if (!empty($search)) {
+            $callbackBase .= '|search=' . $search;
+        }
+
         if ($orders->currentPage() > 1) {
 
             $pagination[] = [
                 'text' => '⬅️ قبلی',
-                'callback_data' => 'type=adminUserList|page=' . ($page - 1)
+                'callback_data' => $callbackBase . '|page=' . ($page - 1)
             ];
         } else {
             $pagination[] = [
                 'text' => '⬅️ قبلی',
-                'callback_data' => 'ignore',
-                'style' => 'danger'
+                'callback_data' => 'ignore'
             ];
         }
 
-// شماره صفحه وسط
         $pagination[] = [
             'text' => "📄 {$orders->currentPage()} / {$orders->lastPage()}",
-            'callback_data' => 'ignore',
-            'style' => 'success'
+            'callback_data' => 'ignore'
         ];
 
         if ($orders->hasMorePages()) {
 
             $pagination[] = [
                 'text' => 'بعدی ➡️',
-                'callback_data' => 'type=adminUserList|page=' . ($page + 1)
+                'callback_data' => $callbackBase . '|page=' . ($page + 1)
             ];
         } else {
             $pagination[] = [
                 'text' => 'بعدی ➡️',
-                'callback_data' => 'ignore',
-                'style' => 'danger'
+                'callback_data' => 'ignore'
             ];
         }
 
@@ -10422,9 +10450,8 @@ dd($orders);
         */
         $keyboard[] = [
             [
-                'text' => 'جستجو',
-                'callback_data' => 'type=adminOrderSearch',
-                'style' => 'primary'
+                'text' => '🔍 جستجو',
+                'callback_data' => 'type=adminOrderSearch'
             ],
         ];
 
