@@ -45,6 +45,8 @@ class TelegramBotController extends Controller
     protected $isAdmin;
     protected $from;
     protected $isJoined = false;
+    protected $fileId = false;
+    protected $file_unique_id;
 
 
     public function __construct(Request $request)
@@ -64,7 +66,9 @@ class TelegramBotController extends Controller
             $this->chatId = $data['message']['chat']['id'];
             $this->type = 'text';
             if (array_key_exists('photo', $data['message'])) {
-                $this->text = "test";
+                $this->text = "photo";
+                $this->fileId = $data['message']['photo'][2]['file_id'];
+                $this->file_unique_id = $data['message']['photo'][2]['file_unique_id'];
             } elseif (array_key_exists('text', $data['message'])) {
                 $this->text = PersianNumToEn($data['message']['text']);
             }
@@ -1888,22 +1892,12 @@ class TelegramBotController extends Controller
         $paymentCardNumber = $tel_detail['payment-cart-number'] ?? null;
         $paymentCardName = $tel_detail['payment-cart-name'] ?? null;
 
-        $this->updatePath('start');
-        /*
-        |--------------------------------------------------------------------------
-        | Validate message
-        |--------------------------------------------------------------------------
-        */
+//        $this->updatePath('start');
 
         if (empty($this->messageId)) {
             return $this->sendTemporaryMessage('❌ پیام یا رسیدی ارسال نشده است.');
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Receiver chat id
-        |--------------------------------------------------------------------------
-        */
 
         $channelId = null;
 
@@ -1924,19 +1918,31 @@ class TelegramBotController extends Controller
             return $this->sendTemporaryMessage('❌ مقصد ارسال رسید یافت نشد.');
         }
 
+        if ($this->fileId == false) {
+            $value = $this->text;
+        } else {
+            $fileId = $this->fileId;
+            $fileName = 'telegram_' . time() . '_' . rand(1000, 9999) . '.jpg';
+            $savePath = public_path('/uploads/telegram/' . $fileName);
+            $download = $this->telegramSdk->downloadFileById($fileId, $savePath);
+            if ($download['ok']) {
+                $value = url('uploads/telegram/' . $fileName);
+            }
+        }
+
         /*
         |--------------------------------------------------------------------------
         | Forward receipt
         |--------------------------------------------------------------------------
         */
 
-        $data = [
-            'chat_id' => $channelId,
-            'from_chat_id' => $this->chatId,
-            'message_id' => $this->messageId,
-        ];
-
-        $this->telegramSdk->forwardMessage($data);
+//        $data = [
+//            'chat_id' => $channelId,
+//            'from_chat_id' => $this->chatId,
+//            'message_id' => $this->messageId,
+//        ];
+//
+//        $this->telegramSdk->forwardMessage($data);
         /*
         |--------------------------------------------------------------------------
         | Send info message to admin
@@ -1952,6 +1958,7 @@ class TelegramBotController extends Controller
         $paymentDetail = $payment->detail;
         $paymentDetail['cart-number'] = $tel_detail['payment-cart-number'];
         $paymentDetail['cart-name'] = $tel_detail['payment-cart-name'];
+        $paymentDetail['value'] = $value;
 
 
         $payment->method = 'cart-be-cart';
@@ -1973,34 +1980,63 @@ class TelegramBotController extends Controller
         $caption .= "💰 شماره کارت: <code>{$paymentCardNumber}</code>\n";
         $caption .= "👤 صاحب کارت: {$paymentCardName}\n";
         $caption .= "🧾 مبلغ تراکنش: <code>{$Price}</code> تومان\n\n";
+        $caption .= "رسید کاربر: \n";
+
 
         $this->method = 'toUser';
-        $this->sendMessage([
-            'chat_id' => $channelId,
-            'text' => $caption,
-            'parse_mode' => 'HTML',
-            'reply_markup' => json_encode([
-                'inline_keyboard' => [
-                    [
-                        [
-                            'text' => '✅ تایید پرداخت',
-                            'callback_data' => "type=adminConfirmCartReceipt|p_id={$paymentId}",
-                            'style' => 'success'
-                        ],
-                        [
-                            'text' => '❌ رد پرداخت',
-                            'callback_data' => "type=adminRejectCartReceipt|p_id={$paymentId}",
-                            'style' => 'danger'
-                        ]
-                    ]
-                ]
-            ])
-        ], 'message');
+
         /*
         |--------------------------------------------------------------------------
         | Response to user
         |--------------------------------------------------------------------------
         */
+        if ($this->fileId == false) {
+            $caption .= $value;
+            $this->sendMessage([
+                'chat_id' => $channelId,
+                'text' => $caption,
+                'parse_mode' => 'HTML',
+                'reply_markup' => json_encode([
+                    'inline_keyboard' => [
+                        [
+                            [
+                                'text' => '✅ تایید پرداخت',
+                                'callback_data' => "type=adminConfirmCartReceipt|p_id={$paymentId}",
+                                'style' => 'success'
+                            ],
+                            [
+                                'text' => '❌ رد پرداخت',
+                                'callback_data' => "type=adminRejectCartReceipt|p_id={$paymentId}",
+                                'style' => 'danger'
+                            ]
+                        ]
+                    ]
+                ])
+            ], 'message');
+        } else {
+            $this->telegramSdk->sendPhoto([
+                'chat_id' => $channelId,
+                'photo' => url($value),
+                'caption' => $caption,
+                'parse_mode' => 'HTML',
+                'reply_markup' => json_encode([
+                    'inline_keyboard' => [
+                        [
+                            [
+                                'text' => '✅ تایید پرداخت',
+                                'callback_data' => "type=adminConfirmCartReceipt|p_id={$paymentId}",
+                                'style' => 'success'
+                            ],
+                            [
+                                'text' => '❌ رد پرداخت',
+                                'callback_data' => "type=adminRejectCartReceipt|p_id={$paymentId}",
+                                'style' => 'danger'
+                            ]
+                        ]
+                    ]
+                ])
+            ]);
+        }
 
         return $this->sendMessage([
             'chat_id' => $this->chatId,
@@ -2956,7 +2992,6 @@ class TelegramBotController extends Controller
                 'password' => $panel->password,
                 'id' => $panel->id,
             ]);
-
             $result = $pasarGuard->getUserById($order->uid);
 
             $totalGb = byteToGb($result['data_limit']);

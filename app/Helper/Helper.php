@@ -19,7 +19,7 @@ if (!function_exists('loginToSanaie')) {
 
         $panel = Panels::where('url', $data['url'])->first();
         if (!is_null($panel) && !is_null($panel->detail)) {
-            if (array_key_exists('Expires',$panel->detail)){
+            if (array_key_exists('Expires', $panel->detail)) {
                 $expire = $panel->detail['Expires'];
                 if (!is_null($expire) && $expire > Carbon::now()) {
                     $Data = [
@@ -916,3 +916,7 @@ function makeSanaeiVlessConfig($streamSettings, string $uuid, string $remark, ar
         . '?' . $query
         . '#' . rawurlencode($remark);
 }
+
+
+
+

@@ -286,5 +286,61 @@ class Telegram
         return $this->request('getUpdates', $params);
     }
 
+    // =====================
+// 📥 Download Files
+// =====================
 
+    public function getFile(array $params)
+    {
+        return $this->request('getFile', $params);
+    }
+
+    public function downloadFileById(string $fileId, string $savePath): array
+    {
+        $file = $this->getFile([
+            'file_id' => $fileId
+        ]);
+
+        if (!($file['ok'] ?? false)) {
+            return [
+                'ok' => false,
+                'error' => $file['description'] ?? 'File not found'
+            ];
+        }
+
+        $filePath = $file['result']['file_path'] ?? null;
+
+        if (!$filePath) {
+            return [
+                'ok' => false,
+                'error' => 'file_path not found'
+            ];
+        }
+
+        $fileUrl = "https://api.telegram.org/file/bot{$this->token}/{$filePath}";
+
+        $dir = dirname($savePath);
+
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+
+        $content = file_get_contents($fileUrl);
+
+        if ($content === false) {
+            return [
+                'ok' => false,
+                'error' => 'Download failed'
+            ];
+        }
+
+        file_put_contents($savePath, $content);
+
+        return [
+            'ok' => true,
+            'path' => $savePath,
+            'telegram_file_path' => $filePath,
+            'url' => $fileUrl
+        ];
+    }
 }
