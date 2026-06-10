@@ -267,6 +267,9 @@ class TelegramBotController extends Controller
                 case "adminUserList":
                     return $this->adminUserList($type);
                     break;
+                case "adminUserSearch":
+                    return $this->adminUserSearch($type);
+                    break;
                 case "adminUserDetail":
                     return $this->adminUserDetail($type);
                     break;
@@ -476,6 +479,13 @@ class TelegramBotController extends Controller
                     return $this->adminChargeAmountDelete($type);
                     break;
 
+                case "adminOrdersList":
+                    return $this->adminOrdersList($type);
+                    break;
+                case "adminOrderSearch":
+                    return $this->adminOrderSearch($type);
+                    break;
+
             }
 
         } catch (\Exception $exception) {
@@ -534,6 +544,10 @@ class TelegramBotController extends Controller
             case 'adminUserList':
                 $type['search'] = $this->text;
                 return $this->adminUserList($type);
+                break;
+            case 'adminOrdersList':
+                $type['search'] = $this->text;
+                return $this->adminOrdersList($type);
                 break;
             case 'adminUserBalanceActionBalance':
                 $type['search'] = $this->text;
@@ -1107,7 +1121,6 @@ class TelegramBotController extends Controller
 
     }
 
-
     private function addFundFinal($data)
     {
         $id = $data['id'];
@@ -1194,6 +1207,7 @@ class TelegramBotController extends Controller
     /**
      * Client Area
      */
+
     protected function clientService($type)
     {
         $page = $type['page'] ?? 1;
@@ -2429,9 +2443,7 @@ class TelegramBotController extends Controller
 
             for ($i = 0; $i < $leftCount; $i++) {
 
-                $remarkBase = $orderDetail['name'] === 'random'
-                    ? ($targetUser->username ?? 'user')
-                    : $orderDetail['name'];
+                $remarkBase = $orderDetail['name'] !== 'random' ?  $orderDetail['name'] : "user-{$targetUser->tel_id}";
 
                 $remark = $remarkBase . '-' . rand(1111, 9999);
 
@@ -2587,8 +2599,6 @@ class TelegramBotController extends Controller
                     'parse_mode' => 'HTML',
                 ], 'message');
             }
-
-
 
         } else {
             $session['session'] = "";
@@ -4374,7 +4384,7 @@ class TelegramBotController extends Controller
 
         $buttons[] = [
             ['text' => "🛒 سفارشات اخیر",
-                'callback_data' => 'type=recent-orders'],
+                'callback_data' => 'type=adminOrdersList'],
             [
                 'text' => "💳 تراکنشات اخیر",
                 'callback_data' => 'type=recent-transactions'],
@@ -4420,7 +4430,7 @@ class TelegramBotController extends Controller
         ];
 
         $text = headTitle("👑 پنل مدیریت ربات");
-        $text = "
+        $text .= "
 ⚙️ مدیریت کاربران، سفارشات، سرویس‌ها،
 پنل‌ها، تراکنش‌ها و تنظیمات سیستم
 
@@ -4603,29 +4613,11 @@ class TelegramBotController extends Controller
         */
         $keyboard[] = [
             [
-                'text' => 'فیلتر ها',
-                'callback_data' => 'ignore',
+                'text' => 'جستجو',
+                'callback_data' => 'type=adminUserSearch',
                 'style' => 'primary'
             ],
         ];
-        $keyboard[] = [
-            [
-                'text' => '🛒 فروشنده ها',
-                'callback_data' => 'type=adminUserList|filter=buyers',
-                'style' => 'primary'
-            ],
-            [
-                'text' => '👮 ادمین‌ها',
-                'callback_data' => 'type=adminUserList|filter=admins',
-                'style' => 'primary'
-            ],
-            [
-                'text' => '👤 کاربران ',
-                'callback_data' => 'type=adminUserList|filter=normal',
-                'style' => 'primary'
-            ]
-        ];
-
 
         /*
         |--------------------------------------------------------------------------
@@ -4643,6 +4635,34 @@ class TelegramBotController extends Controller
                 'inline_keyboard' => $keyboard
             ]),
         ];
+
+        return $this->sendMessage($data, 'message');
+    }
+
+    protected function adminUserSearch($type)
+    {
+        $text = headTitle("👥جستجو کاربران");
+        $text .= "
+🔎 جستجو بر اساس:
+• آیدی تلگرام
+• نام کاربری
+• نام و نام خانوادگی
+
+📌 برای مشاهده جزئیات،
+روی کاربر موردنظر کلیک کنید.
+";
+
+        $keyboard[] = $this->adminFooterButtons('type=adminUserList');
+
+        $data = [
+            'chat_id' => $this->chatId,
+            'text' => trim($text),
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => $keyboard
+            ]),
+        ];
+        $this->updatePath('adminUserList');
 
         return $this->sendMessage($data, 'message');
     }
@@ -8367,8 +8387,9 @@ class TelegramBotController extends Controller
                 ? '🟢 فعال'
                 : '🔴 غیرفعال';
 
+            $name = !is_null($country->Service) ? $country->Service->name : '-';
             $row[] = [
-                'text' => "{$country->name} | {$country->Service->name} | {$status}",
+                'text' => "{$country->name} | {$name} | {$status}",
                 'callback_data' => "type=adminCountriesDetail|id={$country->id}",
             ];
             if (count($row) === 2) {
@@ -9640,7 +9661,6 @@ class TelegramBotController extends Controller
 
 
     // Inbounds
-
     protected function adminInbounds($data)
     {
         $keyboard = [];
@@ -10236,6 +10256,226 @@ class TelegramBotController extends Controller
         $message = Message::ordebyDesc('id')->paginate(10);
 
     }
+
+    // Orders
+    protected function adminOrdersList($data)
+    {
+        $page = $data['page'] ?? 1;
+        $filter = $data['filter'] ?? null;
+        $search = $data['search'] ?? null;
+
+
+        $query = Orders::query();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Filters
+        |--------------------------------------------------------------------------
+        */
+
+        switch ($filter) {
+
+            case 'admins':
+                $query->where('is_admin', 1);
+                break;
+
+            case 'resellers':
+                $query->where('is_seller', 1);
+                break;
+
+            case 'normal':
+                $query->where('is_admin', 0)
+                    ->where('is_seller', 0);
+                break;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Search
+        |--------------------------------------------------------------------------
+        */
+        if (!empty($search)) {
+            $users = User::where(function ($q) use ($search) {
+                $q->where('username', 'LIKE', "%{$search}%")
+                    ->orWhere('first_name', 'LIKE', "%{$search}%")
+                    ->orWhere('last_name', 'LIKE', "%{$search}%");
+            })
+                ->pluck('id')
+                ->toArray();
+
+            if (!is_null($users)){
+                $query->whereIn('user_id',$users);
+            }
+            $query->where(function ($q) use ($search, $users) {
+                $q->where('remark', 'LIKE', "%{$search}%")
+                    ->orWhere('uid', 'LIKE', "%{$search}%")
+                    ->orWhere('id', 'LIKE', "%{$search}%");
+            });
+
+        }
+
+        $orders = $query
+            ->orderByDesc('id')
+            ->paginate(20, ['*'], 'page', $page);
+dd($orders);
+        /*
+        |--------------------------------------------------------------------------
+        | Text
+        |--------------------------------------------------------------------------
+        */
+
+        $text = headTitle("👥لیست سفارشات");
+        $text .= "
+🔎 جستجو بر اساس:
+• آیدی سفارش
+• نام کاربری
+• ریمارک
+
+📌 برای مشاهده جزئیات،
+روی کاربر موردنظر کلیک کنید.
+";
+
+        if ($filter) {
+            $text .= "📌 فیلتر فعال: <code>{$filter}</code>\n\n";
+        }
+
+        $keyboard = [];
+        $row = [];
+
+        /*
+        |--------------------------------------------------------------------------
+        | User Buttons
+        |--------------------------------------------------------------------------
+        */
+
+        foreach ($orders as $order) {
+
+            $btnText = $order->id;
+
+            $row[] = [
+                'text' => $btnText,
+                'callback_data' => "type=adminOrderDetail|id={$order->id}"
+            ];
+
+            // دو ستونه
+            if (count($row) == 2) {
+                $keyboard[] = $row;
+                $row = [];
+            }
+        }
+
+        // باقی‌مانده
+        if (!empty($row)) {
+            $keyboard[] = $row;
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Pagination
+        |--------------------------------------------------------------------------
+        */
+
+        $pagination = [];
+
+        if ($orders->currentPage() > 1) {
+
+            $pagination[] = [
+                'text' => '⬅️ قبلی',
+                'callback_data' => 'type=adminUserList|page=' . ($page - 1)
+            ];
+        } else {
+            $pagination[] = [
+                'text' => '⬅️ قبلی',
+                'callback_data' => 'ignore',
+                'style' => 'danger'
+            ];
+        }
+
+// شماره صفحه وسط
+        $pagination[] = [
+            'text' => "📄 {$orders->currentPage()} / {$orders->lastPage()}",
+            'callback_data' => 'ignore',
+            'style' => 'success'
+        ];
+
+        if ($orders->hasMorePages()) {
+
+            $pagination[] = [
+                'text' => 'بعدی ➡️',
+                'callback_data' => 'type=adminUserList|page=' . ($page + 1)
+            ];
+        } else {
+            $pagination[] = [
+                'text' => 'بعدی ➡️',
+                'callback_data' => 'ignore',
+                'style' => 'danger'
+            ];
+        }
+
+        $keyboard[] = $pagination;
+
+        /*
+        |--------------------------------------------------------------------------
+        | Filter Buttons
+        |--------------------------------------------------------------------------
+        */
+        $keyboard[] = [
+            [
+                'text' => 'جستجو',
+                'callback_data' => 'type=adminOrderSearch',
+                'style' => 'primary'
+            ],
+        ];
+
+        /*
+        |--------------------------------------------------------------------------
+        | Home Button
+        |--------------------------------------------------------------------------
+        */
+
+        $keyboard[] = $this->adminFooterButtons('type=admin-home');
+
+        $data = [
+            'chat_id' => $this->chatId,
+            'text' => trim($text),
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => $keyboard
+            ]),
+        ];
+
+        return $this->sendMessage($data, 'message');
+    }
+
+    protected function adminOrderSearch($type)
+    {
+        $text = headTitle("👥جستجو سفارشات");
+        $text .= "
+🔎 جستجو بر اساس:
+• آیدی سفارش
+• نام کاربری
+• ریمارک
+
+📌 برای مشاهده جزئیات،
+روی کاربر موردنظر کلیک کنید.
+";
+
+        $keyboard[] = $this->adminFooterButtons('type=adminOrderList');
+
+        $data = [
+            'chat_id' => $this->chatId,
+            'text' => trim($text),
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => $keyboard
+            ]),
+        ];
+        $this->updatePath('adminOrdersList');
+
+        return $this->sendMessage($data, 'message');
+    }
+
 
     /**
      * Admin Area
