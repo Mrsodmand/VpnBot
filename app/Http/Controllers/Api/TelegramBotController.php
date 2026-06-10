@@ -45,6 +45,7 @@ class TelegramBotController extends Controller
     protected $isAdmin;
     protected $from;
     protected $isJoined = false;
+    protected $isPhoto = false;
     protected $fileId = false;
     protected $file_unique_id;
 
@@ -84,6 +85,7 @@ class TelegramBotController extends Controller
 
             if (array_key_exists('photo', $data['callback_query']['message'])) {
                 $this->text = $data['callback_query']['message']['caption'];
+                $this->isPhoto = true;
             } elseif (array_key_exists('text', $data['callback_query']['message'])) {
                 $this->text = PersianNumToEn($data['callback_query']['message']['text']);
             }
@@ -113,378 +115,378 @@ class TelegramBotController extends Controller
 
     protected function callbackQueryAction()
     {
-//        try {
-        $data = explode('|', $this->callbackData);
+        try {
+            $data = explode('|', $this->callbackData);
 
-        if ($this->callbackData == 'ignore') {
-            return $this->ignore();
-        }
-        foreach ($data as $key => $item) {
-            list($name, $id) = explode('=', $item);
-            $type[$name] = $id;
-        }
-
-        if (array_key_exists('action', $type)) {
-            switch ($type['action']) {
-                case 'delete':
-                    $this->deleteChat();
-                    $this->method = 'toUser';
-                    break;
+            if ($this->callbackData == 'ignore') {
+                return $this->ignore();
             }
+            foreach ($data as $key => $item) {
+                list($name, $id) = explode('=', $item);
+                $type[$name] = $id;
+            }
+
+            if (array_key_exists('action', $type)) {
+                switch ($type['action']) {
+                    case 'delete':
+                        $this->deleteChat();
+                        $this->method = 'toUser';
+                        break;
+                }
+            }
+
+            $this->updatePath($type['type']);
+
+            $telData = new TelegramData();
+            $telData->data = json_encode($this->telData);
+            $telData->tel_id = $this->chatId;
+            $telData->path = $type['type'];
+            $telData->types = json_encode($type);
+            $telData->save();
+
+
+            switch ($type['type']) {
+                // all access
+                case 'home':
+                    return $this->home($type);
+                    break;
+                case 'clientService':
+                    return $this->clientService($type);
+                    break;
+                case 'clientSelectCountry':
+                    return $this->clientSelectCountry($type);
+                    break;
+                case 'clientSelectPlan':
+                    return $this->clientSelectPlan($type);
+                    break;
+                case 'clientSelectExtra':
+                    return $this->clientSelectExtra($type);
+                    break;
+                case 'clientSelectCount':
+                    return $this->clientSelectCount($type);
+                    break;
+                case 'clientSelectName':
+                    return $this->clientSelectName($type);
+                    break;
+                case 'clientFinalStep':
+                    return $this->clientFinalStep($type);
+                    break;
+                case 'paymentCartBeCart':
+                    return $this->paymentCartBeCart($type);
+                    break;
+                case 'paymentSendReceipt':
+                    return $this->paymentSendReceipt($type);
+                    break;
+                case 'paymentWallet':
+                    return $this->paymentWallet($type);
+                    break;
+
+                // Profile
+                case "profile":
+                    $this->profile($type);
+                    break;
+                case "addFund":
+                    $this->addFund($type);
+                    break;
+                case "addFundStepOne":
+                    $this->addFundStepOne($type);
+                    break;
+                case "addFundStepTwo":
+                    $this->addFundStepTwo($type);
+                    break;
+
+                // Order
+                case "clientOrders":
+                    return $this->clientOrders($type);
+                    break;
+                case "clientSingleOrder":
+                    $this->deleteChat();
+                    return $this->clientSingleOrder($type);
+                    break;
+                case "clientChangeConfigName":
+                    $this->method = 'toUser';
+                    return $this->clientChangeConfigName($type);
+                    break;
+                case "clientChangeConfigUid":
+                    return $this->clientChangeConfigUid($type);
+                    break;
+                case "clientRenewOrder":
+                    return $this->clientRenewOrder($type);
+                    break;
+                case "clientSubmitRenew":
+                    return $this->clientSubmitRenew($type);
+                    break;
+
+                case "clientBuyExtra":
+                    return $this->clientBuyExtra($type);
+                    break;
+                case "clientSubmitExtra":
+                    return $this->clientSubmitExtra($type);
+                    break;
+
+                // Seller Access
+
+
+                // Admin Panel Admin Access
+
+                case "admin-home":
+                    return $this->adminMenu($type);
+                    break;
+
+                case "adminPanelMenu":
+                    return $this->adminPanelMenu($type);
+                    break;
+                case "admin-panels":
+                    return $this->adminPanels($type);
+                    break;
+                case "adminCreatePanel":
+                    return $this->adminCreatePanel($type);
+                    break;
+                case "adminPanelDetail":
+                    return $this->adminPanelDetail($type);
+                    break;
+                case "adminEditPanel":
+                    return $this->adminEditPanel($type);
+                    break;
+                case "adminUpdatePanel":
+                    return $this->adminUpdatePanel($type);
+                    break;
+                case "adminConnectPanel":
+                    return $this->adminConnectPanel($type);
+                    break;
+                case "adminGetInbounds":
+                    return $this->adminGetInbounds($type);
+                    break;
+                case "adminPanelDeleteDetail":
+                    return $this->adminPanelDeleteDetail($type);
+                    break;
+                case "adminPanelDeleteSubmit":
+                    return $this->adminPanelDeleteSubmit($type);
+                    break;
+
+                case "adminUserList":
+                    return $this->adminUserList($type);
+                    break;
+                case "adminUserDetail":
+                    return $this->adminUserDetail($type);
+                    break;
+                case "adminUserBalance":
+                    return $this->adminUserBalance($type);
+                    break;
+                case "adminUserBalanceAction":
+                    return $this->adminUserBalanceAction($type);
+                    break;
+                case "adminUserSettings":
+                    return $this->adminUserSettings($type);
+                    break;
+                case "adminUserIsAdmin":
+                    return $this->adminUserIsAdmin($type);
+                    break;
+                case "adminUserIsSeller":
+                    return $this->adminUserIsSeller($type);
+                    break;
+                case "adminUserSellerDiscount":
+                    return $this->adminUserSellerDiscount($type);
+                    break;
+                case "adminUserSellerInbounds":
+                    return $this->adminUserSellerInbounds($type);
+                    break;
+                case "adminUserSellerChangeInbound":
+                    return $this->adminUserSellerChangeInbound($type);
+                    break;
+                case "adminToggleUserStatus":
+                    return $this->adminToggleUserStatus($type);
+                    break;
+
+                case "adminPlans":
+                    return $this->adminPlans($type);
+                    break;
+                case "adminPlanCreate":
+                    return $this->adminPlanCreate($type);
+                    break;
+                case "adminPlanDetail":
+                    return $this->adminPlanDetail($type);
+                    break;
+                case "adminEditPlan":
+                    return $this->adminEditPlan($type);
+                    break;
+                case "adminUpdatePlan":
+                    return $this->adminUpdatePlan($type);
+                    break;
+                case "adminPlanDeleteDetail":
+                    return $this->adminPlanDeleteDetail($type);
+                    break;
+                case "adminPlanDeleteSubmit":
+                    return $this->adminPlanDeleteSubmit($type);
+                    break;
+
+                case "adminSetting":
+                    return $this->adminSetting($type);
+                    break;
+                case "adminSettingSell":
+                    return $this->adminSettingSell($type);
+                    break;
+                case "adminToggleSetting":
+                    return $this->adminToggleSetting($type);
+                    break;
+                case "adminSettingCommission":
+                    return $this->adminSettingCommission($type);
+                    break;
+                case "adminSettingCommissionText":
+                    return $this->adminSettingCommissionText($type);
+                    break;
+                case "adminPaymentSetting":
+                    return $this->adminPaymentSetting($type);
+                    break;
+                case "adminCartBeCartStatus":
+                    return $this->adminCartBeCartStatus($type);
+                    break;
+                case "adminCartBeCartRandom":
+                    return $this->adminCartBeCartRandom($type);
+                    break;
+                case "adminCartSetting":
+                    return $this->adminCartSetting($type);
+                    break;
+
+                case "adminBotSetting":
+                    return $this->adminBotSetting($type);
+                    break;
+                case "adminChangeSetting":
+                    return $this->adminChangeSetting($type);
+                    break;
+                case "adminChangeSettingSubmit":
+                    return $this->adminChangeSettingSubmit($type);
+                    break;
+
+                case "adminCountries":
+                    return $this->adminCountries($type);
+                    break;
+                case "adminCountriesCreate":
+                    return $this->adminCountriesCreate($type);
+                    break;
+                case "adminCountriesDetail":
+                    return $this->adminCountriesDetail($type);
+                    break;
+                case "adminCountriesEdit":
+                    return $this->adminCountriesEdit($type);
+                    break;
+                case "adminCountriesUpdate":
+                    return $this->adminCountriesUpdate($type);
+                    break;
+
+                case "adminService":
+                    return $this->adminService($type);
+                    break;
+                case "adminServiceCreate":
+                    return $this->adminServiceCreate($type);
+                    break;
+                case "adminServiceDetail":
+                    return $this->adminServiceDetail($type);
+                    break;
+                case "adminServiceEdit":
+                    return $this->adminServiceEdit($type);
+                    break;
+                case "adminServiceUpdate":
+                    return $this->adminServiceUpdate($type);
+                    break;
+                case "adminServiceDeleteDetail":
+                    return $this->adminServiceDeleteDetail($type);
+                    break;
+                case "adminServiceDeleteSubmit":
+                    return $this->adminServiceDeleteSubmit($type);
+                    break;
+
+                case "adminExtraBandwidths":
+                    return $this->adminExtraBandwidths($type);
+                    break;
+                case "adminExtraBandwidthsCreate":
+                    return $this->adminExtraBandwidthsCreate($type);
+                    break;
+                case "adminExtraBandwidthsDetail":
+                    return $this->adminExtraBandwidthsDetail($type);
+                    break;
+                case "adminExtraBandwidthsEdit":
+                    return $this->adminExtraBandwidthsEdit($type);
+                    break;
+                case "adminExtraBandwidthsUpdate":
+                    return $this->adminExtraBandwidthsUpdate($type);
+                    break;
+                case "adminExtraBandwidthsDelete":
+                    return $this->adminExtraBandwidthsDelete($type);
+                    break;
+                case "adminExtraBandwidthsDeleteSubmit":
+                    return $this->adminExtraBandwidthsDeleteSubmit($type);
+                    break;
+
+                case "adminCartList":
+                    return $this->adminCartList($type);
+                    break;
+                case "adminCartCreate":
+                    return $this->adminCartCreate($type);
+                    break;
+                case "adminCartDetail":
+                    return $this->adminCartDetail($type);
+                    break;
+                case "adminCartEdit":
+                    return $this->adminCartEdit($type);
+                    break;
+                case "adminCartUpdate":
+                    return $this->adminCartUpdate($type);
+                    break;
+                case "adminCartBeCartText":
+                    return $this->adminCartBeCartText($type);
+                    break;
+
+                case "adminRejectCartReceipt":
+                    return $this->adminRejectCartReceipt($type);
+                    break;
+                case "adminConfirmCartReceipt":
+                    return $this->adminConfirmCartReceipt($type);
+                    break;
+
+                case "adminInbounds":
+                    return $this->adminInbounds($type);
+                    break;
+                case "adminInboundList":
+                    return $this->adminInboundList($type);
+                    break;
+                case "adminPasarGuardGroups":
+                    return $this->adminPasarGuardGroups($type);
+                    break;
+                case "AdminPGGDA":
+                    return $this->adminPasarGuardGroupDetail($type);
+                    break;
+                case "adminPasarGuardGroupsEdit":
+                    return $this->adminPasarGuardGroupsEdit($type);
+                    break;
+                case "adminPasarGuardGroupsUpdate":
+                    return $this->adminPasarGuardGroupsUpdate($type);
+                    break;
+                case "adminToggleInboundStatus":
+                    return $this->adminToggleInboundStatus($type);
+                    break;
+
+                case "adminChargeAmount":
+                    return $this->adminChargeAmount($type);
+                    break;
+                case "adminChargeAmountAdd":
+                    return $this->adminChargeAmountAdd($type);
+                    break;
+                case "adminChargeAmountDelete":
+                    return $this->adminChargeAmountDelete($type);
+                    break;
+
+            }
+
+        } catch (\Exception $exception) {
+            $this->telData['errors'] = $exception->getMessage() . '-LINE:' . $exception->getLine();
+            $telData = new TelegramData();
+            $telData->data = json_encode($this->telData);
+            $telData->tel_id = $this->chatId;
+            $telData->path = 'error';
+            $telData->types = isset($type) ? json_encode($type) : '';
+            $telData->save();
         }
-
-        $this->updatePath($type['type']);
-
-        $telData = new TelegramData();
-        $telData->data = json_encode($this->telData);
-        $telData->tel_id = $this->chatId;
-        $telData->path = $type['type'];
-        $telData->types = json_encode($type);
-        $telData->save();
-
-
-        switch ($type['type']) {
-            // all access
-            case 'home':
-                return $this->home($type);
-                break;
-            case 'clientService':
-                return $this->clientService($type);
-                break;
-            case 'clientSelectCountry':
-                return $this->clientSelectCountry($type);
-                break;
-            case 'clientSelectPlan':
-                return $this->clientSelectPlan($type);
-                break;
-            case 'clientSelectExtra':
-                return $this->clientSelectExtra($type);
-                break;
-            case 'clientSelectCount':
-                return $this->clientSelectCount($type);
-                break;
-            case 'clientSelectName':
-                return $this->clientSelectName($type);
-                break;
-            case 'clientFinalStep':
-                return $this->clientFinalStep($type);
-                break;
-            case 'paymentCartBeCart':
-                return $this->paymentCartBeCart($type);
-                break;
-            case 'paymentSendReceipt':
-                return $this->paymentSendReceipt($type);
-                break;
-            case 'paymentWallet':
-                return $this->paymentWallet($type);
-                break;
-
-            // Profile
-            case "profile":
-                $this->profile($type);
-                break;
-            case "addFund":
-                $this->addFund($type);
-                break;
-            case "addFundStepOne":
-                $this->addFundStepOne($type);
-                break;
-            case "addFundStepTwo":
-                $this->addFundStepTwo($type);
-                break;
-
-            // Order
-            case "clientOrders":
-                return $this->clientOrders($type);
-                break;
-            case "clientSingleOrder":
-                $this->deleteChat();
-                return $this->clientSingleOrder($type);
-                break;
-            case "clientChangeConfigName":
-                $this->method = 'toUser';
-                return $this->clientChangeConfigName($type);
-                break;
-            case "clientChangeConfigUid":
-                return $this->clientChangeConfigUid($type);
-                break;
-            case "clientRenewOrder":
-                return $this->clientRenewOrder($type);
-                break;
-            case "clientSubmitRenew":
-                return $this->clientSubmitRenew($type);
-                break;
-
-            case "clientBuyExtra":
-                return $this->clientBuyExtra($type);
-                break;
-            case "clientSubmitExtra":
-                return $this->clientSubmitExtra($type);
-                break;
-
-            // Seller Access
-
-
-            // Admin Panel Admin Access
-
-            case "admin-home":
-                return $this->adminMenu($type);
-                break;
-
-            case "adminPanelMenu":
-                return $this->adminPanelMenu($type);
-                break;
-            case "admin-panels":
-                return $this->adminPanels($type);
-                break;
-            case "adminCreatePanel":
-                return $this->adminCreatePanel($type);
-                break;
-            case "adminPanelDetail":
-                return $this->adminPanelDetail($type);
-                break;
-            case "adminEditPanel":
-                return $this->adminEditPanel($type);
-                break;
-            case "adminUpdatePanel":
-                return $this->adminUpdatePanel($type);
-                break;
-            case "adminConnectPanel":
-                return $this->adminConnectPanel($type);
-                break;
-            case "adminGetInbounds":
-                return $this->adminGetInbounds($type);
-                break;
-            case "adminPanelDeleteDetail":
-                return $this->adminPanelDeleteDetail($type);
-                break;
-            case "adminPanelDeleteSubmit":
-                return $this->adminPanelDeleteSubmit($type);
-                break;
-
-            case "adminUserList":
-                return $this->adminUserList($type);
-                break;
-            case "adminUserDetail":
-                return $this->adminUserDetail($type);
-                break;
-            case "adminUserBalance":
-                return $this->adminUserBalance($type);
-                break;
-            case "adminUserBalanceAction":
-                return $this->adminUserBalanceAction($type);
-                break;
-            case "adminUserSettings":
-                return $this->adminUserSettings($type);
-                break;
-            case "adminUserIsAdmin":
-                return $this->adminUserIsAdmin($type);
-                break;
-            case "adminUserIsSeller":
-                return $this->adminUserIsSeller($type);
-                break;
-            case "adminUserSellerDiscount":
-                return $this->adminUserSellerDiscount($type);
-                break;
-            case "adminUserSellerInbounds":
-                return $this->adminUserSellerInbounds($type);
-                break;
-            case "adminUserSellerChangeInbound":
-                return $this->adminUserSellerChangeInbound($type);
-                break;
-            case "adminToggleUserStatus":
-                return $this->adminToggleUserStatus($type);
-                break;
-
-            case "adminPlans":
-                return $this->adminPlans($type);
-                break;
-            case "adminPlanCreate":
-                return $this->adminPlanCreate($type);
-                break;
-            case "adminPlanDetail":
-                return $this->adminPlanDetail($type);
-                break;
-            case "adminEditPlan":
-                return $this->adminEditPlan($type);
-                break;
-            case "adminUpdatePlan":
-                return $this->adminUpdatePlan($type);
-                break;
-            case "adminPlanDeleteDetail":
-                return $this->adminPlanDeleteDetail($type);
-                break;
-            case "adminPlanDeleteSubmit":
-                return $this->adminPlanDeleteSubmit($type);
-                break;
-
-            case "adminSetting":
-                return $this->adminSetting($type);
-                break;
-            case "adminSettingSell":
-                return $this->adminSettingSell($type);
-                break;
-            case "adminToggleSetting":
-                return $this->adminToggleSetting($type);
-                break;
-            case "adminSettingCommission":
-                return $this->adminSettingCommission($type);
-                break;
-            case "adminSettingCommissionText":
-                return $this->adminSettingCommissionText($type);
-                break;
-            case "adminPaymentSetting":
-                return $this->adminPaymentSetting($type);
-                break;
-            case "adminCartBeCartStatus":
-                return $this->adminCartBeCartStatus($type);
-                break;
-            case "adminCartBeCartRandom":
-                return $this->adminCartBeCartRandom($type);
-                break;
-            case "adminCartSetting":
-                return $this->adminCartSetting($type);
-                break;
-
-            case "adminBotSetting":
-                return $this->adminBotSetting($type);
-                break;
-            case "adminChangeSetting":
-                return $this->adminChangeSetting($type);
-                break;
-            case "adminChangeSettingSubmit":
-                return $this->adminChangeSettingSubmit($type);
-                break;
-
-            case "adminCountries":
-                return $this->adminCountries($type);
-                break;
-            case "adminCountriesCreate":
-                return $this->adminCountriesCreate($type);
-                break;
-            case "adminCountriesDetail":
-                return $this->adminCountriesDetail($type);
-                break;
-            case "adminCountriesEdit":
-                return $this->adminCountriesEdit($type);
-                break;
-            case "adminCountriesUpdate":
-                return $this->adminCountriesUpdate($type);
-                break;
-
-            case "adminService":
-                return $this->adminService($type);
-                break;
-            case "adminServiceCreate":
-                return $this->adminServiceCreate($type);
-                break;
-            case "adminServiceDetail":
-                return $this->adminServiceDetail($type);
-                break;
-            case "adminServiceEdit":
-                return $this->adminServiceEdit($type);
-                break;
-            case "adminServiceUpdate":
-                return $this->adminServiceUpdate($type);
-                break;
-            case "adminServiceDeleteDetail":
-                return $this->adminServiceDeleteDetail($type);
-                break;
-            case "adminServiceDeleteSubmit":
-                return $this->adminServiceDeleteSubmit($type);
-                break;
-
-            case "adminExtraBandwidths":
-                return $this->adminExtraBandwidths($type);
-                break;
-            case "adminExtraBandwidthsCreate":
-                return $this->adminExtraBandwidthsCreate($type);
-                break;
-            case "adminExtraBandwidthsDetail":
-                return $this->adminExtraBandwidthsDetail($type);
-                break;
-            case "adminExtraBandwidthsEdit":
-                return $this->adminExtraBandwidthsEdit($type);
-                break;
-            case "adminExtraBandwidthsUpdate":
-                return $this->adminExtraBandwidthsUpdate($type);
-                break;
-            case "adminExtraBandwidthsDelete":
-                return $this->adminExtraBandwidthsDelete($type);
-                break;
-            case "adminExtraBandwidthsDeleteSubmit":
-                return $this->adminExtraBandwidthsDeleteSubmit($type);
-                break;
-
-            case "adminCartList":
-                return $this->adminCartList($type);
-                break;
-            case "adminCartCreate":
-                return $this->adminCartCreate($type);
-                break;
-            case "adminCartDetail":
-                return $this->adminCartDetail($type);
-                break;
-            case "adminCartEdit":
-                return $this->adminCartEdit($type);
-                break;
-            case "adminCartUpdate":
-                return $this->adminCartUpdate($type);
-                break;
-            case "adminCartBeCartText":
-                return $this->adminCartBeCartText($type);
-                break;
-
-            case "adminRejectCartReceipt":
-                return $this->adminRejectCartReceipt($type);
-                break;
-            case "adminConfirmCartReceipt":
-                return $this->adminConfirmCartReceipt($type);
-                break;
-
-            case "adminInbounds":
-                return $this->adminInbounds($type);
-                break;
-            case "adminInboundList":
-                return $this->adminInboundList($type);
-                break;
-            case "adminPasarGuardGroups":
-                return $this->adminPasarGuardGroups($type);
-                break;
-            case "AdminPGGDA":
-                return $this->adminPasarGuardGroupDetail($type);
-                break;
-            case "adminPasarGuardGroupsEdit":
-                return $this->adminPasarGuardGroupsEdit($type);
-                break;
-            case "adminPasarGuardGroupsUpdate":
-                return $this->adminPasarGuardGroupsUpdate($type);
-                break;
-            case "adminToggleInboundStatus":
-                return $this->adminToggleInboundStatus($type);
-                break;
-
-            case "adminChargeAmount":
-                return $this->adminChargeAmount($type);
-                break;
-            case "adminChargeAmountAdd":
-                return $this->adminChargeAmountAdd($type);
-                break;
-            case "adminChargeAmountDelete":
-                return $this->adminChargeAmountDelete($type);
-                break;
-
-        }
-
-//        } catch (\Exception $exception) {
-//            $this->telData['errors'] = $exception->getMessage() . '-LINE:' . $exception->getLine();
-//            $telData = new TelegramData();
-//            $telData->data = json_encode($this->telData);
-//            $telData->tel_id = $this->chatId;
-//            $telData->path = 'error';
-//            $telData->types = isset($type) ? json_encode($type) : '';
-//            $telData->save();
-//        }
     }
 
     protected function NormalTextAction()
@@ -632,7 +634,7 @@ class TelegramBotController extends Controller
         }
         return $this->isJoined = true;
     }
-
+x
     private function createInlineKeyboard(array $rows): array
     {
         $keyboard = ['inline_keyboard' => []];
@@ -2292,11 +2294,20 @@ class TelegramBotController extends Controller
         if ($payment->method == 'cart-be-cart') {
             $caption = "✅ <b>تراکنش تایید شد</b>\n\n⏳ در حال تحویل سفارش به کاربر هستیم...\nلطفاً چند لحظه صبر کنید.\nشناسه کاربر:  <code>{$targetUser->tel_id}</code>\nشماره تراکنش:<code>{$payment->id}</code>\n";
             $adminMethod = 'edit';
-            $this->sendMessage([
-                'chat_id' => $channelId,
-                'text' => $caption,
-                'parse_mode' => 'HTML',
-            ], 'message');
+            if ($this->isPhoto) {
+                $this->telegramSdk->editCaption([
+                    'chat_id' => $channelId,
+                    'message_id' => $this->messageId,
+                    'caption' => $caption,
+                    'parse_mode' => 'HTML',
+                ]);
+            } else {
+                $this->sendMessage([
+                    'chat_id' => $channelId,
+                    'text' => $caption,
+                    'parse_mode' => 'HTML',
+                ], 'message');
+            }
         }
         if ($payment->method == 'wallet') {
 

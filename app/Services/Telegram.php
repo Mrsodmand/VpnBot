@@ -343,4 +343,30 @@ class Telegram
             'url' => $fileUrl
         ];
     }
+
+    public function editCaption(array $params)
+    {
+        /**
+         * Example:
+         *
+         * $tg->editCaption([
+         *     'chat_id' => $chat_id,
+         *     'message_id' => $message_id,
+         *     'caption' => '📷 کپشن جدید',
+         *     'parse_mode' => 'HTML',
+         *     'reply_markup' => json_encode([
+         *         'inline_keyboard' => [
+         *             [
+         *                 [
+         *                     'text' => 'دکمه',
+         *                     'callback_data' => 'test'
+         *                 ]
+         *             ]
+         *         ]
+         *     ])
+         * ]);
+         */
+
+        return $this->request('editMessageCaption', $params);
+    }
 }
