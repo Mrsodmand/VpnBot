@@ -928,9 +928,10 @@ class TelegramBotController extends Controller
 
         $buttons[][] = ['text' => "برگشت", 'callback_data' => 'type=home',];
 
+        $balance = number_format($this->user->balance);
         $data = [
             'chat_id' => $this->chatId,
-            'text' => "شارژ کیف پول",
+            'text' => "شارژ کیف پول \n موجودی کیف پول: {$balance}",
             'parse_mode' => 'HTML',
             'reply_markup' => json_encode([
                 'inline_keyboard' => $buttons
@@ -1714,7 +1715,7 @@ class TelegramBotController extends Controller
         $price = number_format($payment->price);
 
         $text = headTitle("🌍 انتخاب نحوه پرداخت");
-        $text = "
+        $text .= "
 📦 <b>نوع سرویس:</b> <code>{$service->name}</code>
 🌐 <b>کشور:</b> <code>{$country->name}</code>
 🌐 <b>تعرفه:</b> <code>{$plan->name}</code>
@@ -1944,8 +1945,9 @@ class TelegramBotController extends Controller
 
         $caption = "💳 <b>رسید جدید کارت به کارت</b>\n\n";
 
-
         $payment = Payment::find($paymentId);
+        $paymentType = __('payment.type.' . $payment->type);
+        $caption .= "💥 نوع تراکنش: <code>{$paymentType}</code>\n";
 
         $paymentDetail = $payment->detail;
         $paymentDetail['cart-number'] = $tel_detail['payment-cart-number'];
@@ -1959,18 +1961,14 @@ class TelegramBotController extends Controller
         $Price = $payment->price;
 
         $Price = number_format($Price);
-
-        $caption .= "====================\n";
-        $caption .= "👤 کاربر: ";
-
+        $caption .= "👤 کاربر\n";
         if (!empty($user->username)) {
             $caption .= "@{$user->username}\n";
         } else {
             $caption .= "{$user->first_name}\n";
         }
-
         $caption .= " آیدی: <code>{$user->tel_id}</code>\n\n";
-        $caption .= "اطلاعات پرداخت: \n";
+        $caption .= "اطلاعات پرداخت\n";
         $caption .= "💰 شماره تراکنش: <code>{$payment->id}</code>\n";
         $caption .= "💰 شماره کارت: <code>{$paymentCardNumber}</code>\n";
         $caption .= "👤 صاحب کارت: {$paymentCardName}\n";
@@ -2256,14 +2254,13 @@ class TelegramBotController extends Controller
         }
 
         if ($payment->method == 'cart-be-cart') {
-            $caption = "✅ <b>تراکنش تایید شد</b>\n\n⏳ در حال تحویل سفارش به کاربر هستیم...\nلطفاً چند لحظه صبر کنید.";
-
+            $caption = "✅ <b>تراکنش تایید شد</b>\n\n⏳ در حال تحویل سفارش به کاربر هستیم...\nلطفاً چند لحظه صبر کنید.\nشناسه کاربر:  <code>{$targetUser->tel_id}</code>\nشماره تراکنش:<code>{$payment->id}</code>\n";
+            $adminMethod = 'edit';
             $this->sendMessage([
                 'chat_id' => $channelId,
                 'text' => $caption,
                 'parse_mode' => 'HTML',
             ], 'message');
-            $adminMethod = 'edit';
         }
         if ($payment->method == 'wallet') {
 
@@ -2480,6 +2477,7 @@ class TelegramBotController extends Controller
                 : ($targetUser->first_name ?? 'بدون نام');
 
             $price = number_format($payment->price);
+            $paymentType = __('payment.type.' . $payment->type);
 
             if ($payment->method == 'cart-be-cart') {
 
@@ -2493,6 +2491,7 @@ class TelegramBotController extends Controller
                 $caption .= "🆔 <b>شناسه تلگرام:</b> <code>{$targetUser->tel_id}</code>\n";
                 $caption .= "━━━━━━━━━━━━━━━\n";
                 $caption .= "💳 <b>جزئیات پرداخت</b>\n";
+                $caption .= "💥 نوع تراکنش: <code>{$paymentType}</code>\n";
                 $caption .= "🔢 <b>شماره تراکنش:</b> <code>{$payment->id}</code>\n";
                 $caption .= "💰 <b>مبلغ واریزی:</b> <code>{$price}</code> تومان\n";
                 $caption .= "💰 <b>نوع پرداخت:</b> کارت به کارت \n";
@@ -2500,7 +2499,7 @@ class TelegramBotController extends Controller
                 $caption .= "👨‍💻 <b>تایید شده توسط:</b> {$adminUserName}\n";
                 $caption .= "📌 <b>وضعیت:</b> موفق\n";
                 $caption .= "━━━━━━━━━━━━━━━\n";
-                $caption .= "👨‍💻 <b>ریمـارک‌های تحویل شده:</b>\n{$remarks}";
+                $caption .= "🔗<b>ریمـارک‌های تحویل شده:</b>\n{$remarks}";
             } elseif ($payment->method == 'wallet') {
 
                 $this->deleteChat();
@@ -2513,7 +2512,7 @@ class TelegramBotController extends Controller
                 $caption .= "💰 <b>مبلغ واریزی:</b> <code>{$price}</code> تومان\n";
                 $caption .= "💰 <b>نوع پرداخت:</b> کیف پول\n";
                 $caption .= "━━━━━━━━━━━━━━━\n";
-                $caption .= "👨‍💻 <b>ریمـارک‌های تحویل شده:</b>\n{$remarks}";
+                $caption .= "🔗<b>ریمـارک‌های تحویل شده:</b>\n{$remarks}";
             }
 
 
@@ -3297,7 +3296,7 @@ class TelegramBotController extends Controller
 
         $panel = Panels::find($order->panel_id);
 
-        $plans = Plans::where('type', $panel->panel_type)->where('status', 1)->orderbyDesc('id')->get();
+        $plans = Plans::where('type', $panel->panel_type)->where('status', 1)->orderby('id')->get();
 
         if (count($plans) > 0) {
             foreach ($plans as $item) {
@@ -3306,7 +3305,7 @@ class TelegramBotController extends Controller
                 $keyboard[] = [
 
                     [
-                        'text' => "{$name} | حجم: {$item->bandwidth} گیگ | مبلغ:$price T",
+                        'text' => "{$name} | مبلغ:$price T",
                         'callback_data' => "type=clientSubmitRenew|o_id={$order->id}|pl_id={$item->id}",
                     ],
                 ];
@@ -3411,13 +3410,12 @@ class TelegramBotController extends Controller
         }
         if ($payment->method == 'cart-be-cart') {
             $caption = "✅ <b>تراکنش تایید شد</b>\n\n⏳ در حال تحویل سفارش به کاربر هستیم...\nلطفاً چند لحظه صبر کنید.";
-
+            $adminMethod = 'edit';
             $this->sendMessage([
                 'chat_id' => $channelId,
                 'text' => $caption,
                 'parse_mode' => 'HTML',
             ], 'message');
-            $adminMethod = 'toUser';
         }
         if ($payment->method == 'wallet') {
 
@@ -3442,7 +3440,9 @@ class TelegramBotController extends Controller
 
     protected function renewClient($panel, $order, $plan, $targetUser, $payment, $adminMethod, $channelId)
     {
+        $paymentType = __('payment.type.' . $payment->type);
         if ($panel->system_type == 'pasarguard') {
+
 
             $pasarGuard = new PasarGuard([
                 'url' => $panel->url,
@@ -3513,6 +3513,7 @@ class TelegramBotController extends Controller
                     $caption .= "🆔 <b>شناسه تلگرام:</b> <code>{$targetUser->tel_id}</code>\n";
                     $caption .= "━━━━━━━━━━━━━━━\n";
                     $caption .= "💳 <b>جزئیات پرداخت</b>\n";
+                    $caption .= "💥 نوع تراکنش: <code>{$paymentType}</code>\n";
                     $caption .= "🔢 <b>شماره تراکنش:</b> <code>{$payment->id}</code>\n";
                     $caption .= "💰 <b>مبلغ واریزی:</b> <code>{$price}</code> تومان\n";
                     $caption .= "💰 <b>نوع پرداخت:</b> کارت به کارت \n";
@@ -3521,7 +3522,6 @@ class TelegramBotController extends Controller
                     $caption .= "📌 <b>وضعیت:</b> موفق\n";
                     $caption .= "━━━━━━━━━━━━━━━\n";
                 } elseif ($payment->method == 'wallet') {
-
                     $this->deleteChat();
                     $caption = "✅ <b>تمدید آی پی</b>\n\n";
                     $caption .= "━━━━━━━━━━━━━━━\n";
@@ -3529,6 +3529,7 @@ class TelegramBotController extends Controller
                     $caption .= "🆔 <b>شناسه تلگرام:</b> <code>{$targetUser->tel_id}</code>\n";
                     $caption .= "━━━━━━━━━━━━━━━\n";
                     $caption .= "💳 <b>جزئیات پرداخت</b>\n";
+                    $caption .= "💥 نوع تراکنش: <code>{$paymentType}</code>\n";
                     $caption .= "💰 <b>مبلغ واریزی:</b> <code>{$price}</code> تومان\n";
                     $caption .= "💰 <b>نوع پرداخت:</b> کیف پول\n";
                 }
@@ -3899,7 +3900,7 @@ class TelegramBotController extends Controller
                 'text' => $caption,
                 'parse_mode' => 'HTML',
             ], 'message');
-            $adminMethod = 'toUser';
+            $adminMethod = 'edit';
         }
         if ($payment->method == 'wallet') {
 
@@ -4111,7 +4112,6 @@ class TelegramBotController extends Controller
                         ]
                     ]),
                 ], 'message');
-
 
                 $targetUserName = $targetUser->username
                     ? "@{$targetUser->username}"
@@ -4689,14 +4689,13 @@ class TelegramBotController extends Controller
         }
 
         $username = $user->username ? "@{$user->username}" : '—';
-
+        $balance = number_format($user->balance);
         $text = headTitle("💰 مدیریت موجودی کیف پول");
 
         $text .= "👤 کاربر:\n<code>{$username}</code>\n\n";
-        $text .= "⚙️ لطفا یکی از گزینه‌های زیر را انتخاب کنید:";
+        $text .= "⚙️ لطفا یکی از گزینه‌های زیر را انتخاب کنید:\n موجودی کیف پول{$balance}";
 
         $keyboard[] =
-
             [
                 [
                     'text' => '➕ شارژ کیف پول',
