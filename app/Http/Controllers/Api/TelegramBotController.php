@@ -1923,7 +1923,7 @@ class TelegramBotController extends Controller
         } else {
             $fileId = $this->fileId;
             $fileName = 'telegram_' . time() . '_' . rand(1000, 9999) . '.jpg';
-            $savePath = public_path('/uploads/telegram/' . $fileName);
+            $savePath = base_path('../public_html/uploads/telegram/' . $fileName);
             $download = $this->telegramSdk->downloadFileById($fileId, $savePath);
             if ($download['ok']) {
                 $value = url('uploads/telegram/' . $fileName);

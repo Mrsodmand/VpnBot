@@ -919,4 +919,42 @@ function makeSanaeiVlessConfig($streamSettings, string $uuid, string $remark, ar
 
 
 
+function uploadProtocolFile($basePath, $fileParam)
+{
 
+    if (!$fileParam || !$fileParam->isValid()) {
+        return '/new-image/images/test.png';
+    }
+
+    $extension = strtolower($fileParam->guessClientExtension() ?? $fileParam->getClientOriginalExtension());
+
+    if ($extension === 'bin') {
+        $extension = 'jpg';
+    }
+
+    $allowedExtensions = ['png', 'jpg', 'jpeg'];
+
+    if (!in_array($extension, $allowedExtensions, true)) {
+        return '/new-image/images/test.png';
+    }
+
+    $originalName = pathinfo($fileParam->getClientOriginalName(), PATHINFO_FILENAME);
+
+    $fileName = preg_replace('/[^A-Za-z0-9\-_]/', '', $originalName);
+
+    if (empty($fileName)) {
+        $fileName = 'image';
+    }
+
+    $newFileName = $fileName . '_' . time() . '_' . rand(1000, 9999) . '.' . $extension;
+
+    $destinationPath = public_path('guide');
+
+    if (!is_dir($destinationPath)) {
+        mkdir($destinationPath, 0755, true);
+    }
+
+    $fileParam->move($destinationPath, $newFileName);
+
+    return "upload/$basePath/" . $newFileName;
+}
