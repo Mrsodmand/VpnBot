@@ -981,6 +981,7 @@ function getConfigDetail($order)
 
         $totalGb = byteToGb($result['data_limit']);
         $totalUsed = byteToGb($result['used_traffic']);
+        $expire = Carbon::parse($result['expire'])->format('Y-m-d H:i:s');
         $left = $totalGb - $totalUsed;
         $code = $pasarGuard->getUserConfig($order->uid)['body'];
     } else {
@@ -989,6 +990,7 @@ function getConfigDetail($order)
         $totalUsed = $result['totalUsed'];
         $left = $result['left'];
         $code = $order->detail['code'];
+        $expire = $order->expire_at;
     }
     $left = $left > 0 ? $left : 0;
     return [
@@ -997,6 +999,7 @@ function getConfigDetail($order)
             'totalGb' => $totalGb,
             'totalUsed' => $totalUsed,
             'left' => $left,
+            'expire' => $expire,
             'code' => $code,
         ]
     ];

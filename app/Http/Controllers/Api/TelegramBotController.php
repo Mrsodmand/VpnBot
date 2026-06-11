@@ -505,7 +505,9 @@ class TelegramBotController extends Controller
                 case "adminOrderChangeBw":
                     return $this->adminOrderChangeBw($type);
                     break;
-
+                case "adminOrderChangeTime":
+                    return $this->adminOrderChangeTime($type);
+                    break;
             }
 
         } catch (\Exception $exception) {
@@ -628,6 +630,11 @@ class TelegramBotController extends Controller
             case 'adminOrderChangeBwSubmit':
                 $type['text'] = $this->text;
                 return $this->adminOrderChangeBwSubmit($type);
+                break;
+            case 'adminOrderChangeTimeSubmit':
+
+                $type['text'] = $this->text;
+                return $this->adminOrderChangeTimeSubmit($type);
                 break;
         }
     }
@@ -2225,31 +2232,26 @@ class TelegramBotController extends Controller
         $caption .= "━━━━━━━━━━━━━━━\n";
         $caption .= "🚫 <b>رد شده توسط:</b>\n{$adminUserName}";
 
-        /*
-        |--------------------------------------------------------------------------
-        | Send To Channel/Admin
-        |--------------------------------------------------------------------------
-        */
 
+        if ($this->isPhoto) {
+            $this->telegramSdk->editCaption([
+                'chat_id' => $channelId,
+                'message_id' => $this->messageId,
+                'caption' => $caption,
+                'parse_mode' => 'HTML',
+            ]);
+        } else {
+            $this->sendMessage([
+                'chat_id' => $channelId,
+                'text' => $caption,
+                'parse_mode' => 'HTML',
 
-        $this->sendMessage([
-            'chat_id' => $channelId,
-            'text' => $caption,
-            'parse_mode' => 'HTML',
-
-        ], 'message');
-
-        /*
-        |--------------------------------------------------------------------------
-        | Notify User
-        |--------------------------------------------------------------------------
-        */
-
+            ], 'message');
+        }
         $userText = "❌ <b>پرداخت شما تایید نشد</b>\n\n";
         $userText .= "🔢 شماره تراکنش: <code>{$payment->id}</code>\n";
         $userText .= "💰 مبلغ: <code>{$price}</code> تومان\n\n";
         $userText .= "در صورت نیاز با پشتیبانی ارتباط بگیرید.";
-
         if (!is_null($support_id) && $support_id->value != 0) {
             $buttons[] = [
                 [
@@ -2258,7 +2260,6 @@ class TelegramBotController extends Controller
                 ]
             ];
         }
-
         $buttons[] = [
             [
                 'text' => 'منو اصلی',
@@ -2266,8 +2267,6 @@ class TelegramBotController extends Controller
                 'style' => 'primary'
             ]
         ];
-
-
         $this->method = 'toUser';
         return $this->sendMessage([
             'chat_id' => $targetUser->tel_id,
@@ -4770,7 +4769,12 @@ class TelegramBotController extends Controller
                     'callback_data' => "type=adminToggleUserStatus|id={$user->id}"
                 ]
             ],
-
+            [
+                [
+                    'text' => 'سفارشات کاربر',
+                    'callback_data' => "type=adminOrdersList|userId={$user->id}"
+                ]
+            ],
             [
                 [
                     'text' => '⬅️ بازگشت',
@@ -10243,6 +10247,7 @@ class TelegramBotController extends Controller
         $page = $data['page'] ?? 1;
         $filter = $data['filter'] ?? null;
         $search = $data['search'] ?? null;
+        $userId = $data['userId'] ?? null;
 
         $query = Orders::query();
 
@@ -10251,26 +10256,29 @@ class TelegramBotController extends Controller
         | Search
         |--------------------------------------------------------------------------
         */
+        if (is_null($userId)) {
+            if (!empty($search)) {
+                $query->where(function ($q) use ($search) {
 
-        if (!empty($search)) {
+                    if (is_numeric($search)) {
+                        $q->where('id', (int)$search);
+                    }
 
-            $query->where(function ($q) use ($search) {
-
-                if (is_numeric($search)) {
-                    $q->where('id', (int)$search);
-                }
-
-                $q->orWhere('uid', 'LIKE', "%{$search}%")
-                    ->orWhere('remark', 'LIKE', "%{$search}%")
-                    ->orWhereIn('user_id', function ($userQuery) use ($search) {
-                        $userQuery->select('id')
-                            ->from('users')
-                            ->where('username', 'LIKE', "%{$search}%")
-                            ->orWhere('first_name', 'LIKE', "%{$search}%")
-                            ->orWhere('last_name', 'LIKE', "%{$search}%");
-                    });
-            });
+                    $q->orWhere('uid', 'LIKE', "%{$search}%")
+                        ->orWhere('remark', 'LIKE', "%{$search}%")
+                        ->orWhereIn('user_id', function ($userQuery) use ($search) {
+                            $userQuery->select('id')
+                                ->from('users')
+                                ->where('username', 'LIKE', "%{$search}%")
+                                ->orWhere('first_name', 'LIKE', "%{$search}%")
+                                ->orWhere('last_name', 'LIKE', "%{$search}%");
+                        });
+                });
+            }
+        } else {
+            $query->where('user_id', $userId);
         }
+
 
         if (!empty($filter)) {
             $query->where('status', $filter);
@@ -10527,7 +10535,6 @@ class TelegramBotController extends Controller
         ];
 
         $jdf = new Jdf();
-        $expireTime = $order->expire_at ? $jdf->jdate('H:i:s d-m-Y', strtotime($order->expire_at)) : 'اطلاعات یافت نشد';
 
         $data = getConfigDetail($order);
         if ($data['status']) {
@@ -10535,9 +10542,11 @@ class TelegramBotController extends Controller
             $totalUsed = $data['data']['totalUsed'];
             $left = $data['data']['left'];
             $code = $data['data']['code'];
+            $expireTime = $data['data']['code'] ? $jdf->jdate('H:i:s d-m-Y', strtotime($data['data']['expire'])) : $jdf->jdate('H:i:s d-m-Y', strtotime($order->expire_at));
         } else {
             return $this->sendTemporaryMessage($data['msg']);
         }
+
 
 //        $configCodeRaw = $code ?? '-';
 //        $subUrl = rtrim($panel->sub_address, '/') . $order->sub_id;
@@ -10614,7 +10623,7 @@ class TelegramBotController extends Controller
 
     }
 
-    public function adminOrderChangeBwSubmit($data)
+    protected function adminOrderChangeBwSubmit($data)
     {
         $text = intval($data['text']);
         $user = $this->user;
@@ -10634,11 +10643,11 @@ class TelegramBotController extends Controller
 
         if ($text >= 0) {
             $totalGb = $totalGb + $text;
-            $txtType = 'عملیات افزایش';
+            $txtType = ' عملیات افزایش حجم';
         } else {
             $value = str_replace('-', '', $text);
             $totalGb = $totalGb - $value;
-            $txtType = 'عملیات کاهش';
+            $txtType = ' عملیات کاهش حجم';
         }
 
         if ($panel->system_type == 'pasarguard') {
@@ -10778,10 +10787,238 @@ class TelegramBotController extends Controller
             }
         }
     }
+
+    protected function adminOrderChangeTime($data)
+    {
+        $id = $data['id'] ?? null;
+
+        $order = Orders::find($id);
+
+        if (!$order) {
+            return $this->sendTemporaryMessage('سفارش مورد نظر یافت نشد.');
+        }
+
+        $jdf = new Jdf();
+
+        $user = $this->user;
+        $telDetail = $user->tel_detail ?? [];
+        $telDetail['order-time'] = $order->id;
+        $user->tel_detail = $telDetail;
+        $user->save();
+
+        $configDetail = getConfigDetail($order);
+
+        if (!($configDetail['status'] ?? false)) {
+            return $this->sendTemporaryMessage($configDetail['msg'] ?? 'دریافت اطلاعات سرویس با خطا مواجه شد.');
+        }
+
+        $expire = !empty($configDetail['data']['code'])
+            ? ($configDetail['data']['expire'] ?? null)
+            : $order->expire_at;
+
+        $expireTime = $expire
+            ? $jdf->jdate('H:i:s d-m-Y', strtotime($expire))
+            : 'نامشخص';
+
+        $this->updatePath('adminOrderChangeTimeSubmit');
+
+        $message = "⏳ <b>تغییر زمان سرویس</b>\n\n";
+        $message .= "📦 <b>شماره سفارش:</b> <code>{$order->id}</code>\n";
+        $message .= "📅 <b>تاریخ اتمام فعلی:</b> <code>{$expireTime}</code>\n\n";
+        $message .= "برای تغییر زمان سرویس، تعداد روز مورد نظر را ارسال کنید.\n\n";
+        $message .= "✅ <b>افزایش زمان:</b>\n";
+        $message .= "مثلا <code>10</code> یعنی ۱۰ روز به سرویس اضافه شود.\n\n";
+        $message .= "➖ <b>کاهش زمان:</b>\n";
+        $message .= "مثلا <code>-10</code> یعنی ۱۰ روز از سرویس کم شود.\n\n";
+        $message .= "لطفا فقط عدد را ارسال کنید.";
+
+        $this->updatePath('adminOrderChangeTimeSubmit');
+        return $this->sendMessage([
+            'chat_id' => $this->chatId,
+            'message_id' => $this->messageId,
+            'text' => $message,
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => [
+                    [
+                        [
+                            'text' => '📄 جزئیات سفارش',
+                            'callback_data' => "type=adminOrderSingle|id={$order->id}",
+                        ],
+                    ],
+                ],
+            ]),
+        ], 'message');
+    }
+
+    protected function adminOrderChangeTimeSubmit($data)
+    {
+        $text = intval($data['text']);
+        $user = $this->user;
+        $order = Orders::find($user->tel_detail['order-bw']);
+        $panel = Panels::find($order->panel_id);
+
+        $data = getConfigDetail($order);
+
+
+        if ($data['status']) {
+            $totalGb = $data['data']['totalGb'];
+            $expire = $data['data']['expire'];
+
+        } else {
+            return $this->sendTemporaryMessage($data['msg']);
+        }
+
+
+        $expire = Carbon::parse($expire);
+        if ($text >= 0) {
+            $expire->addDays((int)$text);
+            $txtType = 'عملیات افزایش زمان';
+        } else {
+            $expire->subDays(abs((int)$text));
+            $txtType = 'عملیات کاهش زمان';
+        }
+
+        if ($panel->system_type == 'pasarguard') {
+            $pasarGuard = new PasarGuard([
+                'url' => $panel->url,
+                'username' => $panel->username,
+                'password' => $panel->password,
+                'id' => $panel->id,
+            ]);
+            if (!$pasarGuard->checkConnection()) {
+                return [
+                    'status' => false,
+                    'message' => $pasarGuard->getLoginStatus()['message'],
+                ];
+            }
+            $result = $pasarGuard->getUserById($order->uid);
+
+            $expire = $expire->format('Y-m-d H:i:s');
+            $band = gbToByte($totalGb);
+            $data = [
+                'status' => 'active',
+                'expire' => $expire,
+                'data_limit' => $band,
+            ];
+            $result = $pasarGuard->updateUserById($order->uid, $data);
+
+            if ($result['status'] != false) {
+                $caption = "$txtType با موفقیت انجام شد.";
+
+                $this->method = 'toUser';
+                $this->sendMessage([
+                    'chat_id' => $this->chatId,
+                    'text' => $caption,
+                    'parse_mode' => 'HTML',
+                    'reply_markup' => json_encode([
+                        'inline_keyboard' => [
+                            [
+                                [
+                                    'text' => '📄 جزئیات سفارش',
+                                    'callback_data' => "type=adminOrderSingle|id={$order->id}",
+                                ]
+                            ]
+                        ]
+                    ]),
+                ], 'message');
+
+            } else {
+                $caption = "خطا در انجام عملیات";
+
+                $this->method = 'toUser';
+                $this->sendMessage([
+                    'chat_id' => $this->chatId,
+                    'text' => $caption,
+                    'parse_mode' => 'HTML',
+                    'reply_markup' => json_encode([
+                        'inline_keyboard' => [
+                            [
+                                [
+                                    'text' => '📄 جزئیات سفارش',
+                                    'callback_data' => "type=adminOrderSingle|id={$order->id}",
+                                ]
+                            ]
+                        ]
+                    ]),
+                ], 'message');
+            }
+
+
+        } else {
+            $loginData = [
+                'username' => $panel->username,
+                'password' => $panel->password,
+                'url' => $panel->url,
+            ];
+            $session = loginToSanaie($loginData);
+
+            $clientRequestData = [
+                'sessionCookie' => $session['session'],
+                'serverUrl' => $panel->url,
+                'uuid' => $order->uid,
+            ];
+
+            $clientData = getClient($clientRequestData)['obj'][0];
+            $band = gbToByte($totalGb);
+
+
+            $expiryTimestamp = $clientData['expiryTime'];
+            $result = [
+                'serverUrl' => $panel->url,
+                'sessionCookie' => $session['session'],
+                'inboundId' => $clientData['inboundId'],
+                'uuid' => $order->uid,
+                'email' => $clientData['email'],
+                'expiryTimestamp' => $expiryTimestamp,
+                'limitIp' => 0,
+                'subId' => $clientData['subId'],
+                'totalGB' => $band,
+            ];
+
+            $result = updateClient($result);
+            if ($result['success']) {
+                $caption = "$txtType با موفقیت انجام شد.";
+                $this->method = 'toUser';
+                $this->sendMessage([
+                    'chat_id' => $this->chatId,
+                    'text' => $caption,
+                    'parse_mode' => 'HTML',
+                    'reply_markup' => json_encode([
+                        'inline_keyboard' => [
+                            [
+                                [
+                                    'text' => '📄 جزئیات سفارش',
+                                    'callback_data' => "type=adminOrderSingle|id={$order->id}",
+                                ]
+                            ]
+                        ]
+                    ]),
+                ], 'message');
+            } else {
+                $caption = "خطا در انجام عملیات";
+                $this->method = 'toUser';
+                $this->sendMessage([
+                    'chat_id' => $this->chatId,
+                    'text' => $caption,
+                    'parse_mode' => 'HTML',
+                    'reply_markup' => json_encode([
+                        'inline_keyboard' => [
+                            [
+                                [
+                                    'text' => '📄 جزئیات سفارش',
+                                    'callback_data' => "type=adminOrderSingle|id={$order->id}",
+                                ]
+                            ]
+                        ]
+                    ]),
+                ], 'message');
+            }
+        }
+    }
+
     /**
      * Admin Area
      */
-
-
     // Default Values
 }
