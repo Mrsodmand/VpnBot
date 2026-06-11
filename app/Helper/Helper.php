@@ -1,6 +1,6 @@
 <?php
 
-use App\lib\PasarGuard;
+use App\Lib\PasarGuard;
 use App\Models\Panels;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Http;
