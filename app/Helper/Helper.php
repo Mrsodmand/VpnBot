@@ -1,5 +1,6 @@
 <?php
 
+use App\lib\PasarGuard;
 use App\Models\Panels;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Http;
@@ -918,7 +919,6 @@ function makeSanaeiVlessConfig($streamSettings, string $uuid, string $remark, ar
 }
 
 
-
 function uploadProtocolFile($basePath, $fileParam)
 {
 
@@ -957,4 +957,100 @@ function uploadProtocolFile($basePath, $fileParam)
     $fileParam->move($destinationPath, $newFileName);
 
     return "upload/$basePath/" . $newFileName;
+}
+
+
+function getConfigDetail($order)
+{
+    $panel = Panels::find($order->panel_id);
+
+    if (is_null($panel)) {
+        return [
+            'status' => false,
+            'msg' => "⚠️ <b>خطا در دریافت اطلاعات سرویس</b>\n\nپنل مربوط به این سفارش پیدا نشد. لطفا با پشتیبانی در ارتباط باشید."
+        ];
+    }
+    if ($panel->system_type == 'pasarguard') {
+        $pasarGuard = new PasarGuard([
+            'url' => $panel->url,
+            'username' => $panel->username,
+            'password' => $panel->password,
+            'id' => $panel->id,
+        ]);
+        $result = $pasarGuard->getUserById($order->uid);
+
+        $totalGb = byteToGb($result['data_limit']);
+        $totalUsed = byteToGb($result['used_traffic']);
+        $left = $totalGb - $totalUsed;
+        $code = $pasarGuard->getUserConfig($order->uid)['body'];
+    } else {
+        $result = clientGetSanaieSinlgeDetail($panel, $order);
+        $totalGb = $result['totalGb'];
+        $totalUsed = $result['totalUsed'];
+        $left = $result['left'];
+        $code = $order->detail['code'];
+    }
+    $left = $left > 0 ? $left : 0;
+    return [
+        'status' => true,
+        'data' => [
+            'totalGb' => $totalGb,
+            'totalUsed' => $totalUsed,
+            'left' => $left,
+            'code' => $code,
+        ]
+    ];
+}
+
+function clientGetSanaieSinlgeDetail($panel, $order)
+{
+    $totalGb = 'اطلاعات یافت نشد';
+    $totalUsed = 'اطلاعات یافت نشد';
+    $left = 'اطلاعات یافت نشد';
+    $expireTime = 'اطلاعات یافت نشد';
+
+    $loginData = [
+        'username' => $panel->username,
+        'password' => $panel->password,
+        'url' => $panel->url,
+    ];
+
+    $session = loginToSanaie($loginData);
+
+    if (!empty($session['status'])) {
+        $clientRequestData = [
+            'sessionCookie' => $session['session'],
+            'serverUrl' => $panel->url,
+            'uuid' => $order->uid,
+        ];
+
+        $clientData = getClient($clientRequestData);
+
+        if (!empty($clientData['success']) && !empty($clientData['obj'][0])) {
+            $client = $clientData['obj'][0];
+
+            $totalGbValue = byteToGb($client['total'] ?? 0);
+            $totalUsedValue = byteToGb($client['allTime'] ?? 0);
+
+            $totalGb = $totalGbValue;
+            $totalUsed = $totalUsedValue;
+
+            if (is_numeric($totalGbValue) && is_numeric($totalUsedValue)) {
+                $left = max(0, $totalGbValue - $totalUsedValue);
+            }
+
+            if (!empty($client['expiryTime']) && $client['expiryTime'] > 0) {
+                $expireTime = Carbon::createFromTimestampMs($client['expiryTime'])
+                    ->format('Y-m-d H:i');
+            }
+        }
+    }
+
+    return [
+        'totalGb' => $totalGb,
+        'totalUsed' => $totalUsed,
+        'left' => $left,
+        'expireTime' => $expireTime,
+    ];
+
 }

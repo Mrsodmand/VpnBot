@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Lib\Jdf;
 use App\Lib\PasarGuard;
 use App\Models\Carts;
 use App\Models\Countries;
@@ -498,6 +499,12 @@ class TelegramBotController extends Controller
                 case "adminOrderSearch":
                     return $this->adminOrderSearch($type);
                     break;
+                case "adminOrderSingle":
+                    return $this->adminOrderSingle($type);
+                    break;
+                case "adminOrderChangeBw":
+                    return $this->adminOrderChangeBw($type);
+                    break;
 
             }
 
@@ -618,6 +625,10 @@ class TelegramBotController extends Controller
                 $type['text'] = $this->text;
                 return $this->adminChargeAmountSubmit($type);
                 break;
+            case 'adminOrderChangeBwSubmit':
+                $type['text'] = $this->text;
+                return $this->adminOrderChangeBwSubmit($type);
+                break;
         }
     }
 
@@ -640,7 +651,7 @@ class TelegramBotController extends Controller
         ) {
             User::where('tel_id', $this->chatId)
                 ->update([
-                    'status' =>1
+                    'status' => 1
                 ]);
         }
     }
@@ -2946,7 +2957,7 @@ class TelegramBotController extends Controller
         |--------------------------------------------------------------------------
         */
 
-        $pagination = $this->paginationFooterButton($list, $page, 'orders');
+        $pagination = $this->paginationFooterButton($list, $page, 'clientOrders');
         if (!empty($pagination)) {
             $keyboard['inline_keyboard'][] = $pagination;
         }
@@ -3067,34 +3078,20 @@ class TelegramBotController extends Controller
             ]);
         }
 
-        $expireTime = $order->expire_at ? (string)$order->expire_at : 'اطلاعات یافت نشد';
+        $jdf = new Jdf();
+        $expireTime = $order->expire_at ? $jdf->jdate('H:i:s d-m-Y', strtotime($order->expire_at)) : 'اطلاعات یافت نشد';
 
-
-        if ($panel->system_type == 'pasarguard') {
-            $pasarGuard = new PasarGuard([
-                'url' => $panel->url,
-                'username' => $panel->username,
-                'password' => $panel->password,
-                'id' => $panel->id,
-            ]);
-            $result = $pasarGuard->getUserById($order->uid);
-
-            $totalGb = byteToGb($result['data_limit']);
-            $totalUsed = byteToGb($result['used_traffic']);
-            $left = $totalGb - $totalUsed;
-            $code = $pasarGuard->getUserConfig($order->uid)['body'];
-            $detail['code'] = $code;
+        $data = getConfigDetail($order);
+        if ($data['status']) {
+            $totalGb = $data['data']['totalGb'];
+            $totalUsed = $data['data']['totalUsed'];
+            $left = $data['data']['left'];
+            $code = $data['data']['code'];
         } else {
-            $result = $this->clientGetSanaieSinlgeDetail($panel, $order);
-            $totalGb = $result['totalGb'];
-            $totalUsed = $result['totalUsed'];
-            $left = $result['left'];
-            $code = $order->detail['code'];
+            return $this->sendTemporaryMessage($data['msg']);
         }
-        $left = $left > 0 ? $left : 0;
 
-
-        $configCodeRaw = $detail['code'] ?? '-';
+        $configCodeRaw = $code ?? '-';
 
         $subUrl = rtrim($panel->sub_address, '/') . $order->sub_id;
 
@@ -3136,59 +3133,6 @@ class TelegramBotController extends Controller
                 'inline_keyboard' => $buttons,
             ]),
         ]);
-    }
-
-    protected function clientGetSanaieSinlgeDetail($panel, $order)
-    {
-        $totalGb = 'اطلاعات یافت نشد';
-        $totalUsed = 'اطلاعات یافت نشد';
-        $left = 'اطلاعات یافت نشد';
-        $expireTime = 'اطلاعات یافت نشد';
-
-        $loginData = [
-            'username' => $panel->username,
-            'password' => $panel->password,
-            'url' => $panel->url,
-        ];
-
-        $session = loginToSanaie($loginData);
-
-        if (!empty($session['status'])) {
-            $clientRequestData = [
-                'sessionCookie' => $session['session'],
-                'serverUrl' => $panel->url,
-                'uuid' => $order->uid,
-            ];
-
-            $clientData = getClient($clientRequestData);
-
-            if (!empty($clientData['success']) && !empty($clientData['obj'][0])) {
-                $client = $clientData['obj'][0];
-
-                $totalGbValue = byteToGb($client['total'] ?? 0);
-                $totalUsedValue = byteToGb($client['allTime'] ?? 0);
-
-                $totalGb = $totalGbValue;
-                $totalUsed = $totalUsedValue;
-
-                if (is_numeric($totalGbValue) && is_numeric($totalUsedValue)) {
-                    $left = max(0, $totalGbValue - $totalUsedValue);
-                }
-
-                if (!empty($client['expiryTime']) && $client['expiryTime'] > 0) {
-                    $expireTime = Carbon::createFromTimestampMs($client['expiryTime'])
-                        ->format('Y-m-d H:i');
-                }
-            }
-        }
-
-        return [
-            'totalGb' => $totalGb,
-            'totalUsed' => $totalUsed,
-            'left' => $left,
-            'expireTime' => $expireTime,
-        ];
-
     }
 
     protected function clientChangeConfigName($data)
@@ -10369,7 +10313,7 @@ class TelegramBotController extends Controller
             $btnText = "#" . $order->id;
             $row[] = [
                 'text' => $btnText,
-                'callback_data' => "type=adminOrderDetail|id={$order->id}"
+                'callback_data' => "type=adminOrderSingle|id={$order->id}|search=$search"
             ];
             // دو ستونه
             if (count($row) == 2) {
@@ -10503,7 +10447,337 @@ class TelegramBotController extends Controller
         return $this->sendMessage($data, 'message');
     }
 
+    protected function adminOrderSingle($data)
+    {
+        $id = $data['id'] ?? null;
+        $search = $data['search'] ?? null;
+        if (!$id) {
+            return $this->telegramSdk->sendMessage([
+                'chat_id' => $this->chatId,
+                'text' => "❌ <b>سفارش نامعتبر است!</b>\n\nلطفا دوباره از بخش «سرویس های من» سفارش خود را انتخاب کنید.",
+                'parse_mode' => 'HTML',
+            ]);
+        }
 
+        $order = Orders::where('id', $id)
+            ->first();
+
+        $targetUser = User::find($order->user_id);
+        if (is_null($order)) {
+            return $this->telegramSdk->sendMessage([
+                'chat_id' => $this->chatId,
+                'text' => "🚫 <b>سفارش یافت نشد</b>\n\nاین سفارش وجود ندارد یا متعلق به حساب شما نیست.",
+                'parse_mode' => 'HTML',
+            ]);
+        }
+
+        $detail = is_array($order->detail)
+            ? $order->detail
+            : json_decode($order->detail, true);
+
+        $buttons = [];
+
+
+        $buttons[] = [
+            [
+                'text' => '✏️ تغییر نام',
+                'callback_data' => "type=clientChangeConfigName|id={$order->id}",
+            ],
+            [
+                'text' => '🔗 تغییر کد',
+                'callback_data' => "type=clientChangeConfigUid|id={$order->id}",
+            ],
+        ];
+
+        $buttons[] = [
+            [
+                'text' => '➕ تغییر حجم',
+                'callback_data' => "type=adminOrderChangeBw|id={$order->id}",
+            ],
+            [
+                'text' => '🔄 تغییر زمان',
+                'callback_data' => "type=adminOrderChangeTime|id={$order->id}",
+            ],
+        ];
+
+        $buttons[] = [
+            [
+                'text' => '📚 تغییر وضعیت',
+                'callback_data' => "type=clientGuides|id={$order->id}",
+            ],
+        ];
+
+        $buttons[] = [
+            [
+                'text' => 'نمایش کد',
+                'callback_data' => "type=adminOrderShowCode|id={$order->id}",
+            ],
+        ];
+
+        $buttons[] = [
+
+            [
+                'text' => '🏠 منو اصلی',
+                'callback_data' => 'type=admin-home',
+            ],
+            [
+                'text' => '🔙 بازگشت',
+                'callback_data' => "type=adminOrdersList|search=$search",
+            ],
+        ];
+
+        $jdf = new Jdf();
+        $expireTime = $order->expire_at ? $jdf->jdate('H:i:s d-m-Y', strtotime($order->expire_at)) : 'اطلاعات یافت نشد';
+
+        $data = getConfigDetail($order);
+        if ($data['status']) {
+            $totalGb = $data['data']['totalGb'];
+            $totalUsed = $data['data']['totalUsed'];
+            $left = $data['data']['left'];
+            $code = $data['data']['code'];
+        } else {
+            return $this->sendTemporaryMessage($data['msg']);
+        }
+
+//        $configCodeRaw = $code ?? '-';
+//        $subUrl = rtrim($panel->sub_address, '/') . $order->sub_id;
+//        $configCode = htmlspecialchars($configCodeRaw, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+//        $subUrlSafe = htmlspecialchars($subUrl, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+
+        $message = "<b>✅ جزئیات سفارش #{$order->id}</b>\n\n";
+        $message .= "<b>حجم کل:</b> {$totalGb} گیگ\n";
+        $message .= "<b>حجم مصرف شده:</b> {$totalUsed} گیگ\n";
+        $message .= "<b>حجم باقی مانده:</b> {$left} گیگ\n";
+        $message .= "<b>زمان پایان:</b> {$expireTime}\n\n";
+
+        $message .= "<b>✅اطلاعات کاربر</b>\n\n";
+        $message .= "<b>نام کاربری:</b> {$targetUser->username}\n";
+        $message .= "<b>آیدی تلگرام:</b> {$targetUser->tel_id}\n";
+
+        $data = [
+            'chat_id' => $this->chatId,
+            'message_id' => $this->messageId,
+            'text' => $message,
+            'reply_markup' => json_encode([
+                'inline_keyboard' => $buttons,
+            ]),
+            'parse_mode' => 'HTML',
+        ];
+        return $this->sendMessage($data, 'message');
+    }
+
+    protected function adminOrderChangeBw($data)
+    {
+        $id = $data['id'] ?? null;
+        $order = Orders::find($id);
+
+        $user = $this->user;
+        $telDetail = $user->tel_detail;
+        $telDetail['order-bw'] = $order->id;
+        $user->tel_detail = $telDetail;
+        $user->save();
+
+        $data = getConfigDetail($order);
+
+        if ($data['status']) {
+            $totalGb = $data['data']['totalGb'];
+            $totalUsed = $data['data']['totalUsed'];
+            $left = $data['data']['left'];
+        } else {
+            return $this->sendTemporaryMessage($data['msg']);
+        }
+
+        $this->updatePath('adminOrderChangeBwSubmit');
+
+        $message = "<b>تغییر حجم</b>\n\n";
+        $message .= "<b>حجم کل:</b> {$totalGb}\n";
+        $message .= "<b>حجم مصرف شده:</b> {$totalUsed}\n";
+        $message .= "<b>حجم باقی مانده:</b> {$left}\n";
+
+        $data = [
+            'chat_id' => $this->chatId,
+            'message_id' => $this->messageId,
+            'text' => $message,
+            'reply_markup' => json_encode([
+                'inline_keyboard' => [
+                    [
+                        [
+                            'text' => '📄 جزئیات سفارش',
+                            'callback_data' => "type=adminOrderSingle|id={$order->id}",
+                        ]
+                    ]
+                ]
+            ]),
+            'parse_mode' => 'HTML',
+        ];
+        return $this->sendMessage($data, 'message');
+
+    }
+
+    public function adminOrderChangeBwSubmit($data)
+    {
+        $text = intval($data['text']);
+        $user = $this->user;
+        $order = Orders::find($user->tel_detail['order-bw']);
+        $panel = Panels::find($order->panel_id);
+
+        $data = getConfigDetail($order);
+
+        if ($data['status']) {
+            $totalGb = $data['data']['totalGb'];
+            $totalUsed = $data['data']['totalUsed'];
+            $left = $data['data']['left'];
+        } else {
+            return $this->sendTemporaryMessage($data['msg']);
+        }
+
+
+        if ($text >= 0) {
+            $totalGb = $totalGb + $text;
+            $txtType = 'عملیات افزایش';
+        } else {
+            $value = str_replace('-', '', $text);
+            $totalGb = $totalGb - $value;
+            $txtType = 'عملیات کاهش';
+        }
+
+        if ($panel->system_type == 'pasarguard') {
+            $pasarGuard = new PasarGuard([
+                'url' => $panel->url,
+                'username' => $panel->username,
+                'password' => $panel->password,
+                'id' => $panel->id,
+            ]);
+            if (!$pasarGuard->checkConnection()) {
+                return [
+                    'status' => false,
+                    'message' => $pasarGuard->getLoginStatus()['message'],
+                ];
+            }
+            $result = $pasarGuard->getUserById($order->uid);
+
+            $expire = Carbon::parse($result['expire'])->format('Y-m-d H:i:s');
+            $band = gbToByte($totalGb);
+            $data = [
+                'status' => 'active',
+                'expire' => $expire,
+                'data_limit' => $band,
+            ];
+            $result = $pasarGuard->updateUserById($order->uid, $data);
+
+            if ($result['status'] != false) {
+                $caption = "$txtType با موفقیت انجام شد.";
+
+                $this->method = 'toUser';
+                $this->sendMessage([
+                    'chat_id' => $this->chatId,
+                    'text' => $caption,
+                    'parse_mode' => 'HTML',
+                    'reply_markup' => json_encode([
+                        'inline_keyboard' => [
+                            [
+                                [
+                                    'text' => '📄 جزئیات سفارش',
+                                    'callback_data' => "type=adminOrderSingle|id={$order->id}",
+                                ]
+                            ]
+                        ]
+                    ]),
+                ], 'message');
+
+            } else {
+                $caption = "خطا در انجام عملیات";
+
+                $this->method = 'toUser';
+                $this->sendMessage([
+                    'chat_id' => $this->chatId,
+                    'text' => $caption,
+                    'parse_mode' => 'HTML',
+                    'reply_markup' => json_encode([
+                        'inline_keyboard' => [
+                            [
+                                [
+                                    'text' => '📄 جزئیات سفارش',
+                                    'callback_data' => "type=adminOrderSingle|id={$order->id}",
+                                ]
+                            ]
+                        ]
+                    ]),
+                ], 'message');
+            }
+
+
+        } else {
+            $loginData = [
+                'username' => $panel->username,
+                'password' => $panel->password,
+                'url' => $panel->url,
+            ];
+            $session = loginToSanaie($loginData);
+
+            $clientRequestData = [
+                'sessionCookie' => $session['session'],
+                'serverUrl' => $panel->url,
+                'uuid' => $order->uid,
+            ];
+
+            $clientData = getClient($clientRequestData)['obj'][0];
+            $band = gbToByte($totalGb);
+
+
+            $expiryTimestamp = $clientData['expiryTime'];
+            $result = [
+                'serverUrl' => $panel->url,
+                'sessionCookie' => $session['session'],
+                'inboundId' => $clientData['inboundId'],
+                'uuid' => $order->uid,
+                'email' => $clientData['email'],
+                'expiryTimestamp' => $expiryTimestamp,
+                'limitIp' => 0,
+                'subId' => $clientData['subId'],
+                'totalGB' => $band,
+            ];
+
+            $result = updateClient($result);
+            if ($result['success']) {
+                $caption = "$txtType با موفقیت انجام شد.";
+                $this->method = 'toUser';
+                $this->sendMessage([
+                    'chat_id' => $this->chatId,
+                    'text' => $caption,
+                    'parse_mode' => 'HTML',
+                    'reply_markup' => json_encode([
+                        'inline_keyboard' => [
+                            [
+                                [
+                                    'text' => '📄 جزئیات سفارش',
+                                    'callback_data' => "type=adminOrderSingle|id={$order->id}",
+                                ]
+                            ]
+                        ]
+                    ]),
+                ], 'message');
+            } else {
+                $caption = "خطا در انجام عملیات";
+                $this->method = 'toUser';
+                $this->sendMessage([
+                    'chat_id' => $this->chatId,
+                    'text' => $caption,
+                    'parse_mode' => 'HTML',
+                    'reply_markup' => json_encode([
+                        'inline_keyboard' => [
+                            [
+                                [
+                                    'text' => '📄 جزئیات سفارش',
+                                    'callback_data' => "type=adminOrderSingle|id={$order->id}",
+                                ]
+                            ]
+                        ]
+                    ]),
+                ], 'message');
+            }
+        }
+    }
     /**
      * Admin Area
      */
