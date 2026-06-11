@@ -208,6 +208,9 @@ class TelegramBotController extends Controller
                 case "addFundStepTwo":
                     $this->addFundStepTwo($type);
                     break;
+                case "addFundCustomAmount":
+                    $this->addFundCustomAmount($type);
+                    break;
 
                 // Order
                 case "clientOrders":
@@ -636,6 +639,10 @@ class TelegramBotController extends Controller
                 $type['text'] = $this->text;
                 return $this->adminOrderChangeTimeSubmit($type);
                 break;
+            case 'addFundCustomAmountSubmit':
+                $type['amount'] = $this->text;
+                return $this->addFundCustomAmountSubmit($type);
+                break;
         }
     }
 
@@ -1050,6 +1057,10 @@ class TelegramBotController extends Controller
                 $keyboard['inline_keyboard'][] = $row;
             }
         }
+        $keyboard['inline_keyboard'][][] = [
+            'text' => "💰 مبلغ دلخواه",
+            'callback_data' => "type=addFundCustomAmount|key=$method",
+        ];
         $keyboard['inline_keyboard'][] = $this->clientFooterButtons("type=addFund");
 
         $data = [
@@ -1077,6 +1088,52 @@ class TelegramBotController extends Controller
                 return $this->addFundCrypto($data);
                 break;
         }
+    }
+
+    protected function addFundCustomAmount($data)
+    {
+        $key = $data['key'];
+        $user = $this->user;
+        $tel_detail = $user->tel_detail;
+        $tel_detail['add-fund-method'] = $key;
+        $user->tel_detail = $tel_detail;
+        $user->save();
+
+        $this->updatePath('addFundCustomAmountSubmit');
+
+        $keyboard['inline_keyboard'][] = $this->clientFooterButtons("type=addFund");
+
+        $data = [
+            'chat_id' => $this->chatId,
+            'text' => "لطفا مبلغ مورد نظر را به تومان وارد کنید.",
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode($keyboard)
+        ];
+        return $this->sendMessage($data, 'message');
+    }
+
+    protected function addFundCustomAmountSubmit($data)
+    {
+        $validate = Validator::make([
+            'amount' => $this->text
+        ], [
+            'amount' => ['required', 'numeric', 'min:1000'],
+        ], [
+            'amount.required' => '❌ لطفا مقدار تخفیف را وارد کنید.',
+            'amount.numeric' => '❌ مقدار باید عددی باشد.',
+            'amount.min' => '❌ حداقل مقدار 1000 است.',
+        ]);
+
+        if ($validate->fails()) {
+            return $this->sendTemporaryMessage($validate->errors()->first());
+        }
+
+        $user = $this->user;
+        $data['key'] = $user->tel_detail['add-fund-method'];
+        $data['amount'] = $this->text;
+
+        return $this->addFundStepTwo($data);
+
     }
 
     private function addFundOnline($data)
