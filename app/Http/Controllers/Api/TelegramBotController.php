@@ -796,14 +796,13 @@ class TelegramBotController extends Controller
     private function checkUserIsJoined()
     {
         $this->ifUserIsJoined();
-        if ($this->isJoined) {
+        if (!$this->isJoined) {
             return $this->telegramSdk->answerCallback([
                 'callback_query_id' => $this->callbackId,
                 'text' => "لطفا ابتدا وارد کانال شوید.",
                 'show_alert' => true,
                 'cache_time' => 1,
             ]);
-
         }
         $this->updatePath('start');
         return $this->home();
