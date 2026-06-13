@@ -2,13 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\lib\PasarGuard;
 use App\Models\Inbounds;
+use App\Models\Orders;
+use App\Models\Panels;
 use App\Models\Service;
 use App\Models\Setting;
 use App\Models\User;
-use App\Models\Orders;
-use App\Models\Panels;
-use App\lib\PasarGuard;
+use App\Services\Telegram;
 use Carbon\Carbon;
 
 class DefaultController extends Controller
@@ -17,20 +18,70 @@ class DefaultController extends Controller
     {
 
         $settings = [
-            'renew' => 'وضعیت تمدید',
-            'extra' => 'وضعیت خرید حجم اضافه',
-            'sell' => 'وضعیت فروش',
-            'referral' => 'وضعیت پورسانت',
-            'cart_be_cart' => 'وضعیت کارت به کارت',
-            'cart_be_cart_text' => 'متن کارت به کارت',
-            'cart_be_cart_random' => 'نمایش تصادفی کارت ها',
-            'support_id' => 'آیدی پشتیبانی',
-            'report_id' => 'آیدی کانال تراکنش ها',
-            'cart_be_cart_id' => 'آیدی کانال کارت به کارت',
-            'channel_id' => 'آیدی کانال',
-            'site_address' => 'آدرس سایت',
-            'charge_amount' => 'مبالغ شارژ کیف پول',
-            'home-page' => 'متن منو',
+            'renew' => [
+                'name' => 'وضعیت تمدید',
+                'value' => 1
+            ],
+            'extra' => [
+                'name' => 'وضعیت خرید حجم اضافه',
+                'value' => -1
+            ],
+            'sell' => [
+                'name' => 'وضعیت فروش',
+                'value' => 1
+            ],
+            'referral' => [
+                'name' => 'وضعیت پورسانت',
+                'value' => 0
+            ],
+            'cart_be_cart' => [
+                'name' => 'وضعیت کارت به کارت',
+                'value' => 1
+            ],
+            'cart_be_cart_random' => [
+                'name' => 'نمایش تصادفی کارت ها',
+                'value' => -1
+            ],
+            'support_id' => [
+                'name' => 'آیدی پشتیبانی',
+                'value' => '@supportId'
+            ],
+            'report_id' => [
+                'name' => 'آیدی کانال تراکنش ها',
+                'value' => '@transactionId'
+            ],
+            'cart_be_cart_id' => [
+                'name' => 'آیدی کانال کارت به کارت',
+                'value' => '@cartBeCartId'
+            ],
+            'channel_id' => [
+                'name' => 'آیدی کانال',
+                'value' => '@channelId'
+            ],
+            'site_address' => [
+                'name' => 'آدرس سایت',
+                'value' => 'https://expample.com'
+            ],
+            'charge_amount' => [
+                'name' => 'مبالغ شارژ کیف پول',
+                'value' => 0
+            ],
+            'home-page' => [
+                'name' => 'متن منو',
+                'value' => null
+            ],
+            'join-bot' => [
+                'name' => 'ثبت نام',
+                'value' => 1
+            ],
+            'join-with-referral' => [
+                'name' => 'عضویت با رفرال',
+                'value' => -1
+            ],
+            'channel-join' => [
+                'name' => 'جوین اجباری',
+                'value' => -1
+            ]
         ];
 
         $dataMap = [];
@@ -40,8 +91,8 @@ class DefaultController extends Controller
             $row = Setting::firstOrCreate(
                 ['key' => $key],
                 [
-                    'name' => $label,
-                    'value' => 0
+                    'name' => $label['name'],
+                    'value' => $label['value']
                 ]
             );
 
@@ -55,7 +106,6 @@ class DefaultController extends Controller
                 'value' => 0
             ]
         );
-
         Setting::firstOrCreate(
             ['key' => 'commission_text'],
             [
@@ -63,7 +113,6 @@ class DefaultController extends Controller
                 'value' => 'درصد پورسانت به صورت پیش‌فرض اعمال می‌شود.'
             ]
         );
-
         $vipService = Service::where('name', 'vip')->first();
         if (is_null($vipService)) {
             $vipService = new Service();
@@ -72,7 +121,6 @@ class DefaultController extends Controller
             $vipService->price_per_gb = 5000;
             $vipService->save();
         }
-
         $vipService = Service::where('name', 'normal')->first();
         if (is_null($vipService)) {
             $vipService = new Service();
@@ -81,8 +129,6 @@ class DefaultController extends Controller
             $vipService->price_per_gb = 5000;
             $vipService->save();
         }
-
-
     }
 
     public function exportData()
@@ -199,14 +245,13 @@ class DefaultController extends Controller
         }
 
         foreach ($orders as $order) {
-            $checkOrder = Orders::where('remark',$order['email'])->first();
-            if (!is_null($checkOrder)){
+            $checkOrder = Orders::where('remark', $order['email'])->first();
+            if (!is_null($checkOrder)) {
                 continue;
             }
 
             $result = $pasarGuard->getUser($order['email']);
             if (array_key_exists('username', $result)) {
-
 
 
                 $user = User::where('tel_id', $order['vendor_id'])->first();
@@ -233,6 +278,25 @@ class DefaultController extends Controller
                 );
             }
         }
+    }
+
+    public function setWebhook()
+    {
+        $token = env('TELEGRAM_BOT_TOKEN');
+        $telegram = new Telegram($token);
+        return $telegram->setWebhook([
+            'url' => "https://pseudoperipteral-latesha-unpathetically.ngrok-free.dev/api/telegram-webhook",
+            'drop_pending_updates' => true
+        ]);
+    }
+
+    public function deleteWebhook()
+    {
+        $token = env('TELEGRAM_BOT_TOKEN');
+        $telegram = new Telegram($token);
+        return $telegram->deleteWebhook([
+            'drop_pending_updates' => true
+        ]);
     }
 
 }

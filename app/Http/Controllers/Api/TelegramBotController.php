@@ -98,7 +98,6 @@ class TelegramBotController extends Controller
                 'oldStatus' => $data['my_chat_member']['old_chat_member']['status'],
                 'newStatus' => $data['my_chat_member']['new_chat_member']['status'],
                 $this->type = 'my_chat_member'
-
             ];
         }
 
@@ -112,18 +111,37 @@ class TelegramBotController extends Controller
 
     public function index()
     {
-        switch ($this->type) {
-            case "callback_query":
-                $this->method = 'edit';
-                return $this->callbackQueryAction();
-                break;
-            case "text":
-                $this->method = 'send';
-                return $this->NormalTextAction();
-                break;
-            case "my_chat_member":
-                return $this->checkChatMember();
-                break;
+        $user = $this->user;
+        if ($user->path == 'disabled') {
+            return $this->botIsNotActive();
+        }
+
+        if ($user->status != 1) {
+            return $this->accountIsDisabled();
+        }
+
+//        $setting = Setting::where('key', 'channel-join')->first();
+//        if (!is_null($setting) && $setting->value == 1) {
+//            $this->ifUserIsJoined();
+//            if ($this->isJoined) {
+//                return $this->joinFirst();
+//            }
+//        }
+
+        if ($this->chatId > 0) {
+            switch ($this->type) {
+                case "callback_query":
+                    $this->method = 'edit';
+                    return $this->callbackQueryAction();
+                    break;
+                case "text":
+                    $this->method = 'send';
+                    return $this->NormalTextAction();
+                    break;
+                case "my_chat_member":
+                    return $this->checkChatMember();
+                    break;
+            }
         }
     }
 
@@ -157,7 +175,6 @@ class TelegramBotController extends Controller
             $telData->path = $type['type'];
             $telData->types = json_encode($type);
             $telData->save();
-
 
             switch ($type['type']) {
                 // all access
@@ -242,7 +259,6 @@ class TelegramBotController extends Controller
                     break;
 
                 // Seller Access
-
 
                 // Admin Panel Admin Access
 
@@ -376,6 +392,9 @@ class TelegramBotController extends Controller
                     break;
                 case "adminChangeSettingSubmit":
                     return $this->adminChangeSettingSubmit($type);
+                    break;
+                case "adminSettingChangeValue":
+                    return $this->adminSettingChangeValue($type);
                     break;
 
                 case "adminCountries":
@@ -643,7 +662,41 @@ class TelegramBotController extends Controller
                 $type['amount'] = $this->text;
                 return $this->addFundCustomAmountSubmit($type);
                 break;
+            case 'disabled':
+                return $this->botIsNotActive();
+                break;
         }
+    }
+
+    protected function botIsNotActive()
+    {
+        $text = headTitle('اطلاعیه');
+        $text .= "👋 کاربر گرامی
+
+در حال حاضر امکان ثبت نام کاربر جدید وجود ندارد.
+
+⏳ به محض فعال شدن مجدد ثبت نام، از طریق ربات به شما اطلاع رسانی خواهد شد.
+
+از صبر و شکیبایی شما سپاسگزاریم 🙏";
+        $data = [
+            'chat_id' => $this->chatId,
+            'text' => $text,
+            'parse_mode' => 'HTML',
+        ];
+        return $this->sendMessage($data, 'message');
+    }
+
+    protected function accountIsDisabled()
+    {
+        $text = headTitle('اطلاعیه');
+        $text .= "👋 کاربر گرامی
+حساب کاربری شما غیرفعال شده است.";
+        $data = [
+            'chat_id' => $this->chatId,
+            'text' => $text,
+            'parse_mode' => 'HTML',
+        ];
+        return $this->sendMessage($data, 'message');
     }
 
     protected function checkChatMember()
@@ -670,11 +723,20 @@ class TelegramBotController extends Controller
         }
     }
 
+
     // Functions
     private function checkUser()
     {
         $user = User::where('tel_id', $this->chatId)->first();
         if (is_null($user)) {
+            $setting = Setting::where('key', 'join-bot')->first();
+
+            $path = 'disabled';
+            $status = -3;
+            if ($setting->value == 1) {
+                $path = 'start';
+                $status = -3;
+            }
             $firstName = array_key_exists('first_name', $this->telData['message']['from']) ? $this->telData['message']['from']['first_name'] : null;
             $lastName = array_key_exists('last_name', $this->telData['message']['from']) ? $this->telData['message']['from']['last_name'] : null;
             $username = array_key_exists('username', $this->telData['message']['from']) ? $this->telData['message']['from']['username'] : null;
@@ -684,9 +746,9 @@ class TelegramBotController extends Controller
             $user->last_Name = $lastName;
             $user->username = $username;
             $user->tel_id = $this->chatId;
-            $user->path = 'start';
+            $user->path = $path;
             $user->balance = 0;
-            $user->status = 1;
+            $user->status = $status;
             $user->save();
         }
         $this->user = $user;
@@ -695,19 +757,59 @@ class TelegramBotController extends Controller
     private function ifUserIsJoined()
     {
         $channel_id = Setting::where('key', 'channel_id')->first();
-        if (is_null($channel_id)) {
+        if (!is_null($channel_id)) {
             if ($channel_id->value != 0) {
-
                 $data = [
-                    'chat_id' => '',
-                    'user_id' => '',
+                    'chat_id' => $channel_id->value,
+                    'user_id' => $this->chatId,
                 ];
-                $this->telegramSdk->getChatMember();
 
-
+                $result = $this->telegramSdk->getChatMember($data);
+                if (array_key_exists('ok', $result) && $result['ok'] == true) {
+                    return $this->isJoined = true;
+                }
             }
         }
-        return $this->isJoined = true;
+        return $this->isJoined = false;
+    }
+
+    private function checkUserIsJoined()
+    {
+        $this->ifUserIsJoined();
+        if ($this->isJoined) {
+            return $this->telegramSdk->answerCallback([
+                'callback_query_id' => $this->callbackId,
+                'text' => "لطفا ابتدا وارد کانال شوید.",
+                'show_alert' => true,
+                'cache_time' => 1,
+            ]);
+
+        }
+        $this->updatePath('start');
+        return  $this->home();
+    }
+
+    protected function joinFirst()
+    {
+        $channel_id = Setting::where('key', 'channel_id')->first();
+        $channel_id = str_replace(['https://t.me/','http://t.me/','@'],'',$channel_id->value);
+
+        $text = headTitle('اطلاعیه');
+        $text .= "برای استفاده از ربات لطفا وارد کانال شوید";
+        $buttons[][] = ['text' => "کانال", 'url' => "https://t.me/$channel_id"];
+        $buttons[][] = ['text' => "عضو شدم", 'callback_data' => "type=checkUserIsJoined"];
+
+        $data = [
+            'chat_id' => $this->chatId,
+            'text' => $text,
+            'reply_markup' => json_encode([
+                'inline_keyboard' => $buttons
+            ]),
+            'parse_mode' => 'HTML',
+        ];
+        $this->method = 'toUser';
+        return $this->sendMessage($data, 'message');
+
     }
 
     private function createInlineKeyboard(array $rows): array
@@ -1199,20 +1301,30 @@ class TelegramBotController extends Controller
         $text = "🟩درخواست  شما ثبت شد!
 
 👝 مبلغ سفارش : <code>{$amount}</code> تومان
-معادل: <code>{$rialAmount}</code> ریال
-
 🔘 جهت تکمیل سفارش مبلغ فاکتور را به تومان به شماره کارت زیر واریز نموده و پس از واریز تصویر فیش را در همین مرحله برای ربات ارسال نمایید :
 
 💳 <code> {$card->cart} </code>
 👤 به نام {$card->name}
 
-⚠️ دقت داشته باشید که :
-فیش واریزی رو فقط یــکبار ارسال کنید، درصورت ارسال مجدد تراکنش تایید نمی‌شود.
-پس از بررسی توسط حساب‌داری ربات و تایید فیش ارسال شده اشتراک بصورت اتوماتیک برای شما ارسال خواهد شد.
+در هنگام انتقال، از نوشتن توضیحات انتقال حاوی کلمات یا عبارات حساس مانند «وی‌پی‌ان vpn»، «کانفیگ»، «ویتوری»، «آی‌پی ثابت» و مشابه آن خودداری کنید
+درصورت درج هر یک از این کلمات، حساب شما مسدود شده و کیف‌پول شارژ نخواهد شد
+
+⚠️لطفا برای هربار انتقال به شماره کارت ها دقت کنید زیرا ممکن است تغییر کرده باشند
+📸پس از واریز وجه، عکس رسید پرداختی خود را در همین قسمت ارسال کنید تا تراکنش شما بررسی و سپس در صورت صحت اطلاعات حساب کاربری تان شارژ شود
+🚫تا قبل از ارسال رسید پرداختی از دکمه منو و یا بازگشت استفاده نکنید
+⏳زمان بررسی تراکنش های کارت به کارت، بین 5 تا 30 دقیقه خواهد بود
+
+توجه: لطفا از برنامه آپ برای انتقال استفاده نکنید، محدودیت داره
 
 چنانچه در پرداخت خود با مشکل مواجه شدید، به پشتیبانی مراجعه کنید :
 📞 @{$support->value}";
 
+        $buttons[] = [
+            [
+                'text' => '📤 ارسال رسید',
+                'callback_data' => "type=paymentSendReceipt|id={$payment->id}"
+            ]
+        ];
         $buttons[] = $this->clientFooterButtons("type=home");
 
         $data = [
@@ -1953,17 +2065,22 @@ class TelegramBotController extends Controller
         $amount = number_format($price);
         $text = "درخواست شما ثبت شد.
 👝 مبلغ سفارش : <code>{$amount}</code> تومان
-معادل: <code>{$rialAmount}</code> ریال
-
 🔘 جهت تکمیل سفارش مبلغ فاکتور را به تومان به شماره کارت زیر واریز نموده و پس از واریز تصویر فیش را در همین مرحله برای ربات ارسال نمایید :
 
 💳 <code> {$cardNumber} </code>
 👤 به نام {$cardName}
 
-⚠️ دقت داشته باشید که :
-فیش واریزی رو فقط یــکبار ارسال کنید، درصورت ارسال مجدد تراکنش تایید نمی‌شود.
-پس از بررسی توسط حساب‌داری ربات و تایید فیش ارسال شده اشتراک بصورت اتوماتیک برای شما ارسال خواهد شد.
+در هنگام انتقال، از نوشتن توضیحات انتقال حاوی کلمات یا عبارات حساس مانند «وی‌پی‌ان vpn»، «کانفیگ»، «ویتوری»، «آی‌پی ثابت» و مشابه آن خودداری کنید
+درصورت درج هر یک از این کلمات، حساب شما مسدود شده و کیف‌پول شارژ نخواهد شد
 
+⚠️لطفا برای هربار انتقال به شماره کارت ها دقت کنید زیرا ممکن است تغییر کرده باشند
+📸پس از واریز وجه، عکس رسید پرداختی خود را در همین قسمت ارسال کنید تا تراکنش شما بررسی و سپس در صورت صحت اطلاعات حساب کاربری تان شارژ شود
+🚫تا قبل از ارسال رسید پرداختی از دکمه منو و یا بازگشت استفاده نکنید
+⏳زمان بررسی تراکنش های کارت به کارت، بین 5 تا 30 دقیقه خواهد بود
+
+توجه: لطفا از برنامه آپ برای انتقال استفاده نکنید، محدودیت داره
+
+توجه: لطفا از برنامه آپ برای انتقال استفاده نکنید، محدودیت داره
 چنانچه در پرداخت خود با مشکل مواجه شدید، به پشتیبانی مراجعه کنید :
 📞 @{$support->value}";
 
@@ -4418,13 +4535,13 @@ class TelegramBotController extends Controller
                 'callback_data' => 'type=adminUserList'],
         ];
 
-        $buttons[] = [
-            ['text' => "🛒 سفارشات اخیر",
-                'callback_data' => 'type=adminOrdersList'],
-            [
-                'text' => "💳 تراکنشات اخیر",
-                'callback_data' => 'type=recent-transactions'],
-        ];
+//        $buttons[] = [
+//            ['text' => "🛒 سفارشات اخیر",
+//                'callback_data' => 'type=adminOrdersList'],
+//            [
+//                'text' => "💳 تراکنشات اخیر",
+//                'callback_data' => 'type=recent-transactions'],
+//        ];
 
         $buttons[] = [
             [
@@ -4790,7 +4907,6 @@ class TelegramBotController extends Controller
         */
 
         $keyboard = [
-
             [
                 [
                     'text' => '💰 ویرایش موجودی',
@@ -4798,7 +4914,7 @@ class TelegramBotController extends Controller
                 ],
                 [
                     'text' => '🛒 سفارشات کاربر',
-                    'callback_data' => "type=adminUserOrders|id={$user->id}"
+                    'callback_data' => "type=adminOrdersList|userId={$user->id}"
                 ]
             ],
 
@@ -4824,12 +4940,6 @@ class TelegramBotController extends Controller
                         : '🟢 فعال کردن',
 
                     'callback_data' => "type=adminToggleUserStatus|id={$user->id}"
-                ]
-            ],
-            [
-                [
-                    'text' => 'سفارشات کاربر',
-                    'callback_data' => "type=adminOrdersList|userId={$user->id}"
                 ]
             ],
             [
@@ -6941,68 +7051,27 @@ class TelegramBotController extends Controller
 
     protected function adminSetting($type)
     {
+        $keys = ['join-bot', 'join-with-referral', 'channel-join'];
+        $settings = Setting::whereIn('key', $keys)->get();
         $buttons = [];
 
-
+        foreach ($settings as $setting) {
+            $buttons[] = [
+                [
+                    'text' => ($setting->value != 1 ? "✅" : null) . "غیرفعال",
+                    'callback_data' => "type=adminSettingChangeValue|key={$setting->key}|value=-1"
+                ], [
+                    'text' => ($setting->value == 1 ? "✅" : null) . "فعال",
+                    'callback_data' => "type=adminSettingChangeValue|key={$setting->key}|value=1"
+                ],
+                [
+                    'text' => "{$setting->name}:",
+                    'callback_data' => 'type=adminSettingSell',
+                    'style' => 'primary'
+                ],
+            ];
+        }
         $buttons[] = [
-            [
-                'text' => "غیرفعال",
-                'callback_data' => 'type=adminSettingSell'
-            ], [
-                'text' => "فعال",
-                'callback_data' => 'type=adminSettingSell'
-            ],
-            [
-                'text' => "ثبت نام:",
-                'callback_data' => 'type=adminSettingSell',
-                'style' => 'primary'
-            ],
-        ];
-        $buttons[] = [
-            [
-                'text' => "غیرفعال",
-                'callback_data' => 'type=adminSettingSell'
-            ], [
-                'text' => "فعال",
-                'callback_data' => 'type=adminSettingSell'
-            ],
-            [
-                'text' => "عضویت با رفرال:",
-                'callback_data' => 'type=adminSettingSell',
-                'style' => 'primary'
-            ],
-        ];
-        $buttons[] = [
-            [
-                'text' => "غیرفعال",
-                'callback_data' => 'type=adminSettingSell'
-            ], [
-                'text' => "فعال",
-                'callback_data' => 'type=adminSettingSell'
-            ],
-            [
-                'text' => "جوین اجباری:",
-                'callback_data' => 'type=adminSettingSell',
-                'style' => 'primary'
-            ],
-        ];
-        $buttons[] = [
-            [
-                'text' => "غیرفعال",
-                'callback_data' => 'type=adminSettingSell'
-            ], [
-                'text' => "فعال",
-                'callback_data' => 'type=adminSettingSell'
-            ],
-            [
-                'text' => "حذف خودکار:",
-                'callback_data' => 'type=adminSettingSell',
-                'style' => 'primary'
-            ],
-        ];
-
-        $buttons[] = [
-
             [
                 'text' => "═══════════════════",
                 'callback_data' => 'type=adminSettingSell',
@@ -7051,11 +7120,8 @@ class TelegramBotController extends Controller
 
         $buttons[] = $this->adminFooterButtons();
 
-        $text = "
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚙️ <b>تنظیمات سیستم</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-
+        $text = headTitle('⚙️ تنظیمات سیستم');
+        $text .= "
 🔧 مدیریت تنظیمات ثبت‌نام، فروش،
 پرداخت، رفرال و امکانات ربات
 
@@ -7071,6 +7137,18 @@ class TelegramBotController extends Controller
         ];
         return $this->sendMessage($data, 'message');
 
+    }
+
+    protected function adminSettingChangeValue($data)
+    {
+        $key = $data['key'];
+        $value = $data['value'];
+
+        $setting = Setting::where('key', $key)->first();
+        $setting->value = $value;
+        $setting->save();
+
+        return $this->adminSetting($data);
     }
 
     protected function adminSettingSell()
@@ -10291,7 +10369,6 @@ class TelegramBotController extends Controller
         return $this->adminChargeAmount($data);
     }
 
-
     protected function adminMessage($data)
     {
         $message = Message::ordebyDesc('id')->paginate(10);
@@ -10378,7 +10455,7 @@ class TelegramBotController extends Controller
             $btnText = "#" . $order->id;
             $row[] = [
                 'text' => $btnText,
-                'callback_data' => "type=adminOrderSingle|id={$order->id}|search=$search"
+                'callback_data' => "type=adminOrderSingle|id={$order->id}|search=$search|userId=$userId"
             ];
             // دو ستونه
             if (count($row) == 2) {
@@ -10470,7 +10547,11 @@ class TelegramBotController extends Controller
         |--------------------------------------------------------------------------
         */
 
-        $keyboard[] = $this->adminFooterButtons('type=admin-home');
+        if (!is_null($userId)){
+            $keyboard[] = $this->adminFooterButtons("type=adminUserDetail|id=$userId");
+        }else{
+            $keyboard[] = $this->adminFooterButtons('type=admin-home');
+        }
 
         $data = [
             'chat_id' => $this->chatId,
@@ -10515,6 +10596,7 @@ class TelegramBotController extends Controller
     protected function adminOrderSingle($data)
     {
         $id = $data['id'] ?? null;
+        $userId = $data['userId'] ?? null;
         $search = $data['search'] ?? null;
         if (!$id) {
             return $this->telegramSdk->sendMessage([
@@ -10587,7 +10669,7 @@ class TelegramBotController extends Controller
             ],
             [
                 'text' => '🔙 بازگشت',
-                'callback_data' => "type=adminOrdersList|search=$search",
+                'callback_data' => "type=adminOrdersList|search=$search|userId=$userId",
             ],
         ];
 
