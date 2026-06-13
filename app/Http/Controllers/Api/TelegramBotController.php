@@ -783,7 +783,7 @@ class TelegramBotController extends Controller
 
                 $result = $this->telegramSdk->getChatMember($data);
                 if (array_key_exists('ok', $result) && $result['ok'] == true) {
-                    $status = $res['result']['status'] ?? null;
+                    $status = $result['result']['status'] ?? null;
                     if (in_array($status, ['member', 'administrator', 'creator'])){
                         return $this->isJoined = true;
                     }
