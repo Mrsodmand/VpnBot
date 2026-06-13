@@ -530,6 +530,9 @@ class TelegramBotController extends Controller
                 case "adminOrderChangeTime":
                     return $this->adminOrderChangeTime($type);
                     break;
+                case "adminOrderShowCode":
+                    return $this->adminOrderShowCode($type);
+                    break;
             }
 
         } catch (\Exception $exception) {
@@ -2663,7 +2666,7 @@ class TelegramBotController extends Controller
 
             for ($i = 0; $i < $leftCount; $i++) {
 
-                $remarkBase = $orderDetail['name'] !== 'random' ? $orderDetail['name'] : "user-{$targetUser->tel_id}";
+                $remarkBase = $orderDetail['name'] !== 'random' ? $orderDetail['name'] : "{$targetUser->tel_id}";
 
                 $remark = $remarkBase . '-' . rand(1111, 9999);
 
@@ -10610,6 +10613,8 @@ class TelegramBotController extends Controller
             ->first();
 
         $targetUser = User::find($order->user_id);
+
+        $userId = $order->user_id;
         if (is_null($order)) {
             return $this->telegramSdk->sendMessage([
                 'chat_id' => $this->chatId,
@@ -10693,6 +10698,7 @@ class TelegramBotController extends Controller
 //        $subUrlSafe = htmlspecialchars($subUrl, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
         $message = "<b>✅ جزئیات سفارش #{$order->id}</b>\n\n";
+        $message .= "<b>ریمارک:</b> {$order->remark}\n";
         $message .= "<b>حجم کل:</b> {$totalGb} گیگ\n";
         $message .= "<b>حجم مصرف شده:</b> {$totalUsed} گیگ\n";
         $message .= "<b>حجم باقی مانده:</b> {$left} گیگ\n";
@@ -11154,6 +11160,49 @@ class TelegramBotController extends Controller
                 ], 'message');
             }
         }
+    }
+
+    protected function adminOrderShowCode($data)
+    {
+        $id = $data['id'];
+
+        $order = Orders::find($id);
+        $panel = Panels::find($order->panel_id);
+        $data = getConfigDetail($order);
+        if ($data['status']) {
+            $code = $data['data']['code'];
+        } else {
+            return $this->sendTemporaryMessage($data['msg']);
+        }
+
+        $configCodeRaw = $code ?? '-';
+        $subUrl = rtrim($panel->sub_address, '/') . $order->sub_id;
+        $configCode = htmlspecialchars($configCodeRaw, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $subUrlSafe = htmlspecialchars($subUrl, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+
+        $message = "<b>✅ جزئیات سفارش #{$order->id}</b>\n\n";
+        $message .= "<b>کد کانفیگ:</b>
+        <code>$configCode</code> \n";
+        $message .= "<b>لینک ساب:</b>
+         <code>$subUrlSafe</code> \n\n";
+
+        $data = [
+            'chat_id' => $this->chatId,
+            'message_id' => $this->messageId,
+            'text' => $message,
+            'reply_markup' => json_encode([
+                'inline_keyboard' => [
+                    [
+                        [
+                            'text' => '📄 جزئیات سفارش',
+                            'callback_data' => "type=adminOrderSingle|id={$order->id}",
+                        ]
+                    ]
+                ]
+            ]),
+            'parse_mode' => 'HTML',
+        ];
+        return $this->sendMessage($data, 'message');
     }
 
     /**
