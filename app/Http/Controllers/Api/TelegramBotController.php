@@ -804,6 +804,7 @@ class TelegramBotController extends Controller
                 'cache_time' => 1,
             ]);
         }
+        $this->method = 'edit';
         $this->updatePath('start');
         return $this->home();
     }
