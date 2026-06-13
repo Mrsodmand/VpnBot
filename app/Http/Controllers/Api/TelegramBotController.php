@@ -120,14 +120,6 @@ class TelegramBotController extends Controller
             return $this->accountIsDisabled();
         }
 
-//        $setting = Setting::where('key', 'channel-join')->first();
-//        if (!is_null($setting) && $setting->value == 1) {
-//            $this->ifUserIsJoined();
-//            if ($this->isJoined) {
-//                return $this->joinFirst();
-//            }
-//        }
-
         if ($this->chatId > 0) {
             switch ($this->type) {
                 case "callback_query":
@@ -169,6 +161,16 @@ class TelegramBotController extends Controller
 
             $this->updatePath($type['type']);
 
+            if ($type['type'] != 'checkUserIsJoined') {
+                $setting = Setting::where('key', 'channel-join')->first();
+                if (!is_null($setting) && $setting->value == 1) {
+                    $this->ifUserIsJoined();
+                    if (!$this->isJoined) {
+                        return $this->joinFirst();
+                    }
+                }
+            }
+
             $telData = new TelegramData();
             $telData->data = json_encode($this->telData);
             $telData->tel_id = $this->chatId;
@@ -180,6 +182,9 @@ class TelegramBotController extends Controller
                 // all access
                 case 'home':
                     return $this->home($type);
+                    break;
+                case 'checkUserIsJoined':
+                    return $this->checkUserIsJoined($type);
                     break;
                 case 'clientService':
                     return $this->clientService($type);
@@ -555,6 +560,15 @@ class TelegramBotController extends Controller
         $telData->path = $this->text;
         $telData->save();
         $this->method = 'toUser';
+
+        $setting = Setting::where('key', 'channel-join')->first();
+        if (!is_null($setting) && $setting->value == 1) {
+            $this->ifUserIsJoined();
+            if (!$this->isJoined) {
+                return $this->joinFirst();
+            }
+        }
+
         switch ($this->text) {
             case '/start':
                 if ($this->isAdmin) {
@@ -738,7 +752,7 @@ class TelegramBotController extends Controller
             $status = -3;
             if ($setting->value == 1) {
                 $path = 'start';
-                $status = -3;
+                $status = 1;
             }
             $firstName = array_key_exists('first_name', $this->telData['message']['from']) ? $this->telData['message']['from']['first_name'] : null;
             $lastName = array_key_exists('last_name', $this->telData['message']['from']) ? $this->telData['message']['from']['last_name'] : null;
@@ -789,13 +803,13 @@ class TelegramBotController extends Controller
 
         }
         $this->updatePath('start');
-        return  $this->home();
+        return $this->home();
     }
 
     protected function joinFirst()
     {
         $channel_id = Setting::where('key', 'channel_id')->first();
-        $channel_id = str_replace(['https://t.me/','http://t.me/','@'],'',$channel_id->value);
+        $channel_id = str_replace(['https://t.me/', 'http://t.me/', '@'], '', $channel_id->value);
 
         $text = headTitle('اطلاعیه');
         $text .= "برای استفاده از ربات لطفا وارد کانال شوید";
@@ -10550,9 +10564,9 @@ class TelegramBotController extends Controller
         |--------------------------------------------------------------------------
         */
 
-        if (!is_null($userId)){
+        if (!is_null($userId)) {
             $keyboard[] = $this->adminFooterButtons("type=adminUserDetail|id=$userId");
-        }else{
+        } else {
             $keyboard[] = $this->adminFooterButtons('type=admin-home');
         }
 
