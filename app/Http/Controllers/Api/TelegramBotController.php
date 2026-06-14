@@ -1594,8 +1594,8 @@ class TelegramBotController extends Controller
         $text .= "📦 <b>نوع سرویس:</b>
 <code>{$service->name}</code>
 
-
-💡 لطفاً یکی از کشور زیر را انتخاب کنید:";
+💡 لطفاً یکی از کشور زیر را انتخاب کنید:
+";
 
 
         $keyboard = [];
@@ -1623,10 +1623,13 @@ class TelegramBotController extends Controller
             $pasarguardDetail = $pasarguard->detail;
             if (array_key_exists('status', $pasarguardDetail) && $pasarguardDetail['status'] == 1) {
                 $keyboard[][] = [
-                    'text' => "همه کشور ها",
+                    'text' => "🌍 همه کشور ها",
                     'callback_data' => "type=clientSelectPlan|s_id={$service->id}|co_id=0|p_id={$pasarguard->id}",
                 ];
             }
+            $text .="
+گزینه همه کشورها:
+با انتخاب این نوع سفارش شما دسترسی برای اتصال با تمام کشور ها رو بصورت لینک ساب اسکریپشن دارید.";
         }
 
 
