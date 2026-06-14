@@ -497,7 +497,7 @@ class PasarGuard
             'status' => $params['status'] ?? 'active',
             'data_limit' => $params['data_limit'] ?? $dataLimit,
             'data_limit_reset_strategy' => $params['data_limit_reset_strategy'] ?? 'no_reset',
-            'group_ids' => [$groupId],
+            'group_ids' => $groupId,
             'auto_delete_in_days' => $params['auto_delete_in_days'] ?? 7,
         ];
 

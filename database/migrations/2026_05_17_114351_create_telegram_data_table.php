@@ -16,7 +16,7 @@ return new class extends Migration
             $table->string('tel_id')->nullable();
             $table->string('update_id')->nullable();
             $table->json('data')->nullable();
-            $table->string('path')->nullable();
+            $table->text('path')->nullable();
             $table->text('types')->nullable();
             $table->timestamps();
         });

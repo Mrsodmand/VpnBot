@@ -139,416 +139,416 @@ class TelegramBotController extends Controller
 
     protected function callbackQueryAction()
     {
-        try {
-            $data = explode('|', $this->callbackData);
+//        try {
+        $data = explode('|', $this->callbackData);
 
-            if ($this->callbackData == 'ignore') {
-                return $this->ignore();
-            }
-            foreach ($data as $key => $item) {
-                list($name, $id) = explode('=', $item);
-                $type[$name] = $id;
-            }
-
-            if (array_key_exists('action', $type)) {
-                switch ($type['action']) {
-                    case 'delete':
-                        $this->deleteChat();
-                        $this->method = 'toUser';
-                        break;
-                }
-            }
-
-            $this->updatePath($type['type']);
-
-            if ($type['type'] != 'checkUserIsJoined') {
-                $setting = Setting::where('key', 'channel-join')->first();
-                if (!is_null($setting) && $setting->value == 1) {
-                    $this->ifUserIsJoined();
-                    if (!$this->isJoined) {
-                        return $this->joinFirst();
-                    }
-                }
-            }
-
-            $telData = new TelegramData();
-            $telData->data = json_encode($this->telData);
-            $telData->tel_id = $this->chatId;
-            $telData->path = $type['type'];
-            $telData->types = json_encode($type);
-            $telData->save();
-
-            switch ($type['type']) {
-                // all access
-                case 'home':
-                    return $this->home($type);
-                    break;
-                case 'checkUserIsJoined':
-                    return $this->checkUserIsJoined($type);
-                    break;
-                case 'clientService':
-                    return $this->clientService($type);
-                    break;
-                case 'clientSelectCountry':
-                    return $this->clientSelectCountry($type);
-                    break;
-                case 'clientSelectPlan':
-                    return $this->clientSelectPlan($type);
-                    break;
-                case 'clientSelectExtra':
-                    return $this->clientSelectExtra($type);
-                    break;
-                case 'clientSelectCount':
-                    return $this->clientSelectCount($type);
-                    break;
-                case 'clientSelectName':
-                    return $this->clientSelectName($type);
-                    break;
-                case 'clientFinalStep':
-                    return $this->clientFinalStep($type);
-                    break;
-                case 'paymentCartBeCart':
-                    return $this->paymentCartBeCart($type);
-                    break;
-                case 'paymentSendReceipt':
-                    return $this->paymentSendReceipt($type);
-                    break;
-                case 'paymentWallet':
-                    return $this->paymentWallet($type);
-                    break;
-
-                // Profile
-                case "profile":
-                    $this->profile($type);
-                    break;
-                case "addFund":
-                    $this->addFund($type);
-                    break;
-                case "addFundStepOne":
-                    $this->addFundStepOne($type);
-                    break;
-                case "addFundStepTwo":
-                    $this->addFundStepTwo($type);
-                    break;
-                case "addFundCustomAmount":
-                    $this->addFundCustomAmount($type);
-                    break;
-
-                // Order
-                case "clientOrders":
-                    return $this->clientOrders($type);
-                    break;
-                case "clientSingleOrder":
-                    $this->deleteChat();
-                    return $this->clientSingleOrder($type);
-                    break;
-                case "clientChangeConfigName":
-                    $this->method = 'toUser';
-                    return $this->clientChangeConfigName($type);
-                    break;
-                case "clientChangeConfigUid":
-                    return $this->clientChangeConfigUid($type);
-                    break;
-                case "clientRenewOrder":
-                    return $this->clientRenewOrder($type);
-                    break;
-                case "clientSubmitRenew":
-                    return $this->clientSubmitRenew($type);
-                    break;
-
-                case "clientBuyExtra":
-                    return $this->clientBuyExtra($type);
-                    break;
-                case "clientSubmitExtra":
-                    return $this->clientSubmitExtra($type);
-                    break;
-
-                // Seller Access
-
-                // Admin Panel Admin Access
-
-                case "admin-home":
-                    return $this->adminMenu($type);
-                    break;
-
-                case "adminPanelMenu":
-                    return $this->adminPanelMenu($type);
-                    break;
-                case "admin-panels":
-                    return $this->adminPanels($type);
-                    break;
-                case "adminCreatePanel":
-                    return $this->adminCreatePanel($type);
-                    break;
-                case "adminPanelDetail":
-                    return $this->adminPanelDetail($type);
-                    break;
-                case "adminEditPanel":
-                    return $this->adminEditPanel($type);
-                    break;
-                case "adminUpdatePanel":
-                    return $this->adminUpdatePanel($type);
-                    break;
-                case "adminConnectPanel":
-                    return $this->adminConnectPanel($type);
-                    break;
-                case "adminGetInbounds":
-                    return $this->adminGetInbounds($type);
-                    break;
-                case "adminPanelDeleteDetail":
-                    return $this->adminPanelDeleteDetail($type);
-                    break;
-                case "adminPanelDeleteSubmit":
-                    return $this->adminPanelDeleteSubmit($type);
-                    break;
-
-                case "adminUserList":
-                    return $this->adminUserList($type);
-                    break;
-                case "adminUserSearch":
-                    return $this->adminUserSearch($type);
-                    break;
-                case "adminUserDetail":
-                    return $this->adminUserDetail($type);
-                    break;
-                case "adminUserBalance":
-                    return $this->adminUserBalance($type);
-                    break;
-                case "adminUserBalanceAction":
-                    return $this->adminUserBalanceAction($type);
-                    break;
-                case "adminUserSettings":
-                    return $this->adminUserSettings($type);
-                    break;
-                case "adminUserIsAdmin":
-                    return $this->adminUserIsAdmin($type);
-                    break;
-                case "adminUserIsSeller":
-                    return $this->adminUserIsSeller($type);
-                    break;
-                case "adminUserSellerDiscount":
-                    return $this->adminUserSellerDiscount($type);
-                    break;
-                case "adminUserSellerInbounds":
-                    return $this->adminUserSellerInbounds($type);
-                    break;
-                case "adminUserSellerChangeInbound":
-                    return $this->adminUserSellerChangeInbound($type);
-                    break;
-                case "adminToggleUserStatus":
-                    return $this->adminToggleUserStatus($type);
-                    break;
-
-                case "adminPlans":
-                    return $this->adminPlans($type);
-                    break;
-                case "adminPlanCreate":
-                    return $this->adminPlanCreate($type);
-                    break;
-                case "adminPlanDetail":
-                    return $this->adminPlanDetail($type);
-                    break;
-                case "adminEditPlan":
-                    return $this->adminEditPlan($type);
-                    break;
-                case "adminUpdatePlan":
-                    return $this->adminUpdatePlan($type);
-                    break;
-                case "adminPlanDeleteDetail":
-                    return $this->adminPlanDeleteDetail($type);
-                    break;
-                case "adminPlanDeleteSubmit":
-                    return $this->adminPlanDeleteSubmit($type);
-                    break;
-
-                case "adminSetting":
-                    return $this->adminSetting($type);
-                    break;
-                case "adminSettingSell":
-                    return $this->adminSettingSell($type);
-                    break;
-                case "adminToggleSetting":
-                    return $this->adminToggleSetting($type);
-                    break;
-                case "adminSettingCommission":
-                    return $this->adminSettingCommission($type);
-                    break;
-                case "adminSettingCommissionText":
-                    return $this->adminSettingCommissionText($type);
-                    break;
-                case "adminPaymentSetting":
-                    return $this->adminPaymentSetting($type);
-                    break;
-                case "adminCartBeCartStatus":
-                    return $this->adminCartBeCartStatus($type);
-                    break;
-                case "adminCartBeCartRandom":
-                    return $this->adminCartBeCartRandom($type);
-                    break;
-                case "adminCartSetting":
-                    return $this->adminCartSetting($type);
-                    break;
-
-                case "adminBotSetting":
-                    return $this->adminBotSetting($type);
-                    break;
-                case "adminChangeSetting":
-                    return $this->adminChangeSetting($type);
-                    break;
-                case "adminChangeSettingSubmit":
-                    return $this->adminChangeSettingSubmit($type);
-                    break;
-                case "adminSettingChangeValue":
-                    return $this->adminSettingChangeValue($type);
-                    break;
-
-                case "adminCountries":
-                    return $this->adminCountries($type);
-                    break;
-                case "adminCountriesCreate":
-                    return $this->adminCountriesCreate($type);
-                    break;
-                case "adminCountriesDetail":
-                    return $this->adminCountriesDetail($type);
-                    break;
-                case "adminCountriesEdit":
-                    return $this->adminCountriesEdit($type);
-                    break;
-                case "adminCountriesUpdate":
-                    return $this->adminCountriesUpdate($type);
-                    break;
-
-                case "adminService":
-                    return $this->adminService($type);
-                    break;
-                case "adminServiceCreate":
-                    return $this->adminServiceCreate($type);
-                    break;
-                case "adminServiceDetail":
-                    return $this->adminServiceDetail($type);
-                    break;
-                case "adminServiceEdit":
-                    return $this->adminServiceEdit($type);
-                    break;
-                case "adminServiceUpdate":
-                    return $this->adminServiceUpdate($type);
-                    break;
-                case "adminServiceDeleteDetail":
-                    return $this->adminServiceDeleteDetail($type);
-                    break;
-                case "adminServiceDeleteSubmit":
-                    return $this->adminServiceDeleteSubmit($type);
-                    break;
-
-                case "adminExtraBandwidths":
-                    return $this->adminExtraBandwidths($type);
-                    break;
-                case "adminExtraBandwidthsCreate":
-                    return $this->adminExtraBandwidthsCreate($type);
-                    break;
-                case "adminExtraBandwidthsDetail":
-                    return $this->adminExtraBandwidthsDetail($type);
-                    break;
-                case "adminExtraBandwidthsEdit":
-                    return $this->adminExtraBandwidthsEdit($type);
-                    break;
-                case "adminExtraBandwidthsUpdate":
-                    return $this->adminExtraBandwidthsUpdate($type);
-                    break;
-                case "adminExtraBandwidthsDelete":
-                    return $this->adminExtraBandwidthsDelete($type);
-                    break;
-                case "adminExtraBandwidthsDeleteSubmit":
-                    return $this->adminExtraBandwidthsDeleteSubmit($type);
-                    break;
-
-                case "adminCartList":
-                    return $this->adminCartList($type);
-                    break;
-                case "adminCartCreate":
-                    return $this->adminCartCreate($type);
-                    break;
-                case "adminCartDetail":
-                    return $this->adminCartDetail($type);
-                    break;
-                case "adminCartEdit":
-                    return $this->adminCartEdit($type);
-                    break;
-                case "adminCartUpdate":
-                    return $this->adminCartUpdate($type);
-                    break;
-                case "adminCartBeCartText":
-                    return $this->adminCartBeCartText($type);
-                    break;
-
-                case "adminRejectCartReceipt":
-                    return $this->adminRejectCartReceipt($type);
-                    break;
-                case "adminConfirmCartReceipt":
-                    return $this->adminConfirmCartReceipt($type);
-                    break;
-
-                case "adminInbounds":
-                    return $this->adminInbounds($type);
-                    break;
-                case "adminInboundList":
-                    return $this->adminInboundList($type);
-                    break;
-                case "adminPasarGuardGroups":
-                    return $this->adminPasarGuardGroups($type);
-                    break;
-                case "AdminPGGDA":
-                    return $this->adminPasarGuardGroupDetail($type);
-                    break;
-                case "adminPasarGuardGroupsEdit":
-                    return $this->adminPasarGuardGroupsEdit($type);
-                    break;
-                case "adminPasarGuardGroupsUpdate":
-                    return $this->adminPasarGuardGroupsUpdate($type);
-                    break;
-                case "adminToggleInboundStatus":
-                    return $this->adminToggleInboundStatus($type);
-                    break;
-
-                case "adminChargeAmount":
-                    return $this->adminChargeAmount($type);
-                    break;
-                case "adminChargeAmountAdd":
-                    return $this->adminChargeAmountAdd($type);
-                    break;
-                case "adminChargeAmountDelete":
-                    return $this->adminChargeAmountDelete($type);
-                    break;
-
-                case "adminOrdersList":
-                    return $this->adminOrdersList($type);
-                    break;
-                case "adminOrderSearch":
-                    return $this->adminOrderSearch($type);
-                    break;
-                case "adminOrderSingle":
-                    return $this->adminOrderSingle($type);
-                    break;
-                case "adminOrderChangeBw":
-                    return $this->adminOrderChangeBw($type);
-                    break;
-                case "adminOrderChangeTime":
-                    return $this->adminOrderChangeTime($type);
-                    break;
-                case "adminOrderShowCode":
-                    return $this->adminOrderShowCode($type);
-                    break;
-            }
-
-        } catch (\Exception $exception) {
-            $this->telData['errors'] = $exception->getMessage() . '-LINE:' . $exception->getLine();
-            $telData = new TelegramData();
-            $telData->data = json_encode($this->telData);
-            $telData->tel_id = $this->chatId;
-            $telData->path = 'error';
-            $telData->types = isset($type) ? json_encode($type) : '';
-            $telData->save();
+        if ($this->callbackData == 'ignore') {
+            return $this->ignore();
         }
+        foreach ($data as $key => $item) {
+            list($name, $id) = explode('=', $item);
+            $type[$name] = $id;
+        }
+
+        if (array_key_exists('action', $type)) {
+            switch ($type['action']) {
+                case 'delete':
+                    $this->deleteChat();
+                    $this->method = 'toUser';
+                    break;
+            }
+        }
+
+        $this->updatePath($type['type']);
+
+        $telData = new TelegramData();
+        $telData->data = json_encode($this->telData);
+        $telData->tel_id = $this->chatId;
+        $telData->path = $type['type'];
+        $telData->types = json_encode($type);
+        $telData->save();
+        switch ($type['type']) {
+            // all access
+            case 'home':
+                return $this->home($type);
+                break;
+            case 'checkUserIsJoined':
+                return $this->checkUserIsJoined($type);
+                break;
+            case 'clientService':
+                return $this->clientService($type);
+                break;
+            case 'clientSelectCountry':
+                return $this->clientSelectCountry($type);
+                break;
+            case 'clientSelectPlan':
+                return $this->clientSelectPlan($type);
+                break;
+            case 'clientSelectExtra':
+                return $this->clientSelectExtra($type);
+                break;
+            case 'clientSelectCount':
+            case 'CSC':
+                return $this->clientSelectCount($type);
+                break;
+            case 'CLN':
+            case 'clientSelectName':
+                return $this->clientSelectName($type);
+                break;
+            case 'clientFinalStep':
+                return $this->clientFinalStep($type);
+                break;
+            case 'paymentCartBeCart':
+                return $this->paymentCartBeCart($type);
+                break;
+            case 'paymentSendReceipt':
+                return $this->paymentSendReceipt($type);
+                break;
+            case 'paymentWallet':
+                return $this->paymentWallet($type);
+                break;
+
+            // Profile
+            case "profile":
+                $this->profile($type);
+                break;
+            case "addFund":
+                $this->addFund($type);
+                break;
+            case "addFundStepOne":
+                $this->addFundStepOne($type);
+                break;
+            case "addFundStepTwo":
+                $this->addFundStepTwo($type);
+                break;
+            case "addFundCustomAmount":
+                $this->addFundCustomAmount($type);
+                break;
+
+            // Order
+            case "clientOrders":
+                return $this->clientOrders($type);
+                break;
+            case "clientSingleOrder":
+                $this->deleteChat();
+                return $this->clientSingleOrder($type);
+                break;
+            case "clientChangeConfigName":
+                $this->method = 'toUser';
+                return $this->clientChangeConfigName($type);
+                break;
+            case "clientChangeConfigUid":
+                return $this->clientChangeConfigUid($type);
+                break;
+            case "clientRenewOrder":
+                return $this->clientRenewOrder($type);
+                break;
+            case "clientSubmitRenew":
+                return $this->clientSubmitRenew($type);
+                break;
+
+            case "clientBuyExtra":
+                return $this->clientBuyExtra($type);
+                break;
+            case "clientSubmitExtra":
+                return $this->clientSubmitExtra($type);
+                break;
+
+            // Seller Access
+
+            // Admin Panel Admin Access
+
+            case "admin-home":
+                return $this->adminMenu($type);
+                break;
+
+            case "adminPanelMenu":
+                return $this->adminPanelMenu($type);
+                break;
+            case "admin-panels":
+                return $this->adminPanels($type);
+                break;
+            case "adminCreatePanel":
+                return $this->adminCreatePanel($type);
+                break;
+            case "adminPanelDetail":
+                return $this->adminPanelDetail($type);
+                break;
+            case "adminEditPanel":
+                return $this->adminEditPanel($type);
+                break;
+            case "adminUpdatePanel":
+                return $this->adminUpdatePanel($type);
+                break;
+            case "adminConnectPanel":
+                return $this->adminConnectPanel($type);
+                break;
+            case "adminGetInbounds":
+                return $this->adminGetInbounds($type);
+                break;
+            case "adminPanelDeleteDetail":
+                return $this->adminPanelDeleteDetail($type);
+                break;
+            case "adminPanelDeleteSubmit":
+                return $this->adminPanelDeleteSubmit($type);
+                break;
+            case "adminPasarGuardSellSetting":
+                return $this->adminPasarGuardSellSetting($type);
+                break;
+
+            case "adminUserList":
+                return $this->adminUserList($type);
+                break;
+            case "adminUserSearch":
+                return $this->adminUserSearch($type);
+                break;
+            case "adminUserDetail":
+                return $this->adminUserDetail($type);
+                break;
+            case "adminUserBalance":
+                return $this->adminUserBalance($type);
+                break;
+            case "adminUserBalanceAction":
+                return $this->adminUserBalanceAction($type);
+                break;
+            case "adminUserSettings":
+                return $this->adminUserSettings($type);
+                break;
+            case "adminUserIsAdmin":
+                return $this->adminUserIsAdmin($type);
+                break;
+            case "adminUserIsSeller":
+                return $this->adminUserIsSeller($type);
+                break;
+            case "adminUserSellerDiscount":
+                return $this->adminUserSellerDiscount($type);
+                break;
+            case "adminUserSellerInbounds":
+                return $this->adminUserSellerInbounds($type);
+                break;
+            case "adminUserSellerChangeInbound":
+                return $this->adminUserSellerChangeInbound($type);
+                break;
+            case "adminToggleUserStatus":
+                return $this->adminToggleUserStatus($type);
+                break;
+
+            case "adminPlans":
+                return $this->adminPlans($type);
+                break;
+            case "adminPlanCreate":
+                return $this->adminPlanCreate($type);
+                break;
+            case "adminPlanDetail":
+                return $this->adminPlanDetail($type);
+                break;
+            case "adminEditPlan":
+                return $this->adminEditPlan($type);
+                break;
+            case "adminUpdatePlan":
+                return $this->adminUpdatePlan($type);
+                break;
+            case "adminPlanDeleteDetail":
+                return $this->adminPlanDeleteDetail($type);
+                break;
+            case "adminPlanDeleteSubmit":
+                return $this->adminPlanDeleteSubmit($type);
+                break;
+
+            case "adminSetting":
+                return $this->adminSetting($type);
+                break;
+            case "adminSettingSell":
+                return $this->adminSettingSell($type);
+                break;
+            case "adminToggleSetting":
+                return $this->adminToggleSetting($type);
+                break;
+            case "adminSettingCommission":
+                return $this->adminSettingCommission($type);
+                break;
+            case "adminSettingCommissionText":
+                return $this->adminSettingCommissionText($type);
+                break;
+            case "adminPaymentSetting":
+                return $this->adminPaymentSetting($type);
+                break;
+            case "adminCartBeCartStatus":
+                return $this->adminCartBeCartStatus($type);
+                break;
+            case "adminCartBeCartRandom":
+                return $this->adminCartBeCartRandom($type);
+                break;
+            case "adminCartSetting":
+                return $this->adminCartSetting($type);
+                break;
+
+            case "adminBotSetting":
+                return $this->adminBotSetting($type);
+                break;
+            case "adminChangeSetting":
+                return $this->adminChangeSetting($type);
+                break;
+            case "adminChangeSettingSubmit":
+                return $this->adminChangeSettingSubmit($type);
+                break;
+            case "adminSettingChangeValue":
+                return $this->adminSettingChangeValue($type);
+                break;
+
+            case "adminCountries":
+                return $this->adminCountries($type);
+                break;
+            case "adminCountriesCreate":
+                return $this->adminCountriesCreate($type);
+                break;
+            case "adminCountriesDetail":
+                return $this->adminCountriesDetail($type);
+                break;
+            case "adminCountriesEdit":
+                return $this->adminCountriesEdit($type);
+                break;
+            case "adminCountriesUpdate":
+                return $this->adminCountriesUpdate($type);
+                break;
+
+            case "adminService":
+                return $this->adminService($type);
+                break;
+            case "adminServiceCreate":
+                return $this->adminServiceCreate($type);
+                break;
+            case "adminServiceDetail":
+                return $this->adminServiceDetail($type);
+                break;
+            case "adminServiceEdit":
+                return $this->adminServiceEdit($type);
+                break;
+            case "adminServiceUpdate":
+                return $this->adminServiceUpdate($type);
+                break;
+            case "adminServiceDeleteDetail":
+                return $this->adminServiceDeleteDetail($type);
+                break;
+            case "adminServiceDeleteSubmit":
+                return $this->adminServiceDeleteSubmit($type);
+                break;
+
+            case "adminExtraBandwidths":
+                return $this->adminExtraBandwidths($type);
+                break;
+            case "adminExtraBandwidthsCreate":
+                return $this->adminExtraBandwidthsCreate($type);
+                break;
+            case "adminExtraBandwidthsDetail":
+                return $this->adminExtraBandwidthsDetail($type);
+                break;
+            case "adminExtraBandwidthsEdit":
+                return $this->adminExtraBandwidthsEdit($type);
+                break;
+            case "adminExtraBandwidthsUpdate":
+                return $this->adminExtraBandwidthsUpdate($type);
+                break;
+            case "adminExtraBandwidthsDelete":
+                return $this->adminExtraBandwidthsDelete($type);
+                break;
+            case "adminExtraBandwidthsDeleteSubmit":
+                return $this->adminExtraBandwidthsDeleteSubmit($type);
+                break;
+
+            case "adminCartList":
+                return $this->adminCartList($type);
+                break;
+            case "adminCartCreate":
+                return $this->adminCartCreate($type);
+                break;
+            case "adminCartDetail":
+                return $this->adminCartDetail($type);
+                break;
+            case "adminCartEdit":
+                return $this->adminCartEdit($type);
+                break;
+            case "adminCartUpdate":
+                return $this->adminCartUpdate($type);
+                break;
+            case "adminCartBeCartText":
+                return $this->adminCartBeCartText($type);
+                break;
+
+            case "adminRejectCartReceipt":
+                return $this->adminRejectCartReceipt($type);
+                break;
+            case "adminConfirmCartReceipt":
+                return $this->adminConfirmCartReceipt($type);
+                break;
+
+            case "adminInbounds":
+                return $this->adminInbounds($type);
+                break;
+            case "adminInboundList":
+                return $this->adminInboundList($type);
+                break;
+            case "adminPasarGuardGroups":
+                return $this->adminPasarGuardGroups($type);
+                break;
+            case "AdminPGGDA":
+                return $this->adminPasarGuardGroupDetail($type);
+                break;
+            case "adminPasarGuardGroupsEdit":
+                return $this->adminPasarGuardGroupsEdit($type);
+                break;
+            case "adminPasarGuardGroupsUpdate":
+                return $this->adminPasarGuardGroupsUpdate($type);
+                break;
+            case "adminToggleInboundStatus":
+                return $this->adminToggleInboundStatus($type);
+                break;
+            case "adminPGSellChangeStatus":
+                return $this->adminPGSellChangeStatus($type);
+                break;
+            case "adminPGSellChangePercent":
+                return $this->adminPGSellChangePercent($type);
+                break;
+
+            case "adminChargeAmount":
+                return $this->adminChargeAmount($type);
+                break;
+            case "adminChargeAmountAdd":
+                return $this->adminChargeAmountAdd($type);
+                break;
+            case "adminChargeAmountDelete":
+                return $this->adminChargeAmountDelete($type);
+                break;
+
+            case "adminOrdersList":
+                return $this->adminOrdersList($type);
+                break;
+            case "adminOrderSearch":
+                return $this->adminOrderSearch($type);
+                break;
+            case "adminOrderSingle":
+                return $this->adminOrderSingle($type);
+                break;
+            case "adminOrderChangeBw":
+                return $this->adminOrderChangeBw($type);
+                break;
+            case "adminOrderChangeTime":
+                return $this->adminOrderChangeTime($type);
+                break;
+            case "adminOrderShowCode":
+                return $this->adminOrderShowCode($type);
+                break;
+        }
+
+//        } catch (\Exception $exception) {
+//            $this->telData['errors'] = $exception->getMessage() . '-LINE:' . $exception->getLine();
+//            $telData = new TelegramData();
+//            $telData->data = json_encode($this->telData);
+//            $telData->tel_id = $this->chatId;
+//            $telData->path = 'error';
+//            $telData->types = isset($type) ? json_encode($type) : '';
+//            $telData->save();
+//        }
     }
 
     protected function NormalTextAction()
@@ -682,6 +682,9 @@ class TelegramBotController extends Controller
             case 'disabled':
                 return $this->botIsNotActive();
                 break;
+            case 'adminPGSellChangePercentSubmit':
+                return $this->adminPGSellChangePercentSubmit();
+                break;
         }
     }
 
@@ -754,9 +757,15 @@ class TelegramBotController extends Controller
                 $path = 'start';
                 $status = 1;
             }
-            $firstName = array_key_exists('first_name', $this->telData['message']['from']) ? $this->telData['message']['from']['first_name'] : null;
-            $lastName = array_key_exists('last_name', $this->telData['message']['from']) ? $this->telData['message']['from']['last_name'] : null;
-            $username = array_key_exists('username', $this->telData['message']['from']) ? $this->telData['message']['from']['username'] : null;
+            $firstName = null;
+            $lastName = null;
+            $username = null;
+
+            if (array_key_exists('message', $this->telData)) {
+                $firstName = array_key_exists('first_name', $this->telData['message']['from']) ? $this->telData['message']['from']['first_name'] : null;
+                $lastName = array_key_exists('last_name', $this->telData['message']['from']) ? $this->telData['message']['from']['last_name'] : null;
+                $username = array_key_exists('username', $this->telData['message']['from']) ? $this->telData['message']['from']['username'] : null;
+            }
 
             $user = new User();
             $user->first_name = $firstName;
@@ -780,13 +789,13 @@ class TelegramBotController extends Controller
                     'chat_id' => $channel_id->value,
                     'user_id' => $this->chatId,
                 ];
-
                 $result = $this->telegramSdk->getChatMember($data);
-                if (array_key_exists('ok', $result) && $result['ok'] == true) {
-                    $status = $result['result']['status'] ?? null;
-                    if (in_array($status, ['member', 'administrator', 'creator'])){
-                        return $this->isJoined = true;
-                    }
+                $status = $result['result']['status'] ?? null;
+                if (!$result['ok']) {
+                    return $this->ifUserIsJoined();
+                }
+                if (in_array($status, ['member', 'administrator', 'creator'])) {
+                    return $this->isJoined = true;
                 }
             }
         }
@@ -1060,6 +1069,13 @@ class TelegramBotController extends Controller
             ['text' => "💰 شارژ کیف پول", 'callback_data' => 'type=addFund'],
         ];
 
+        $setting = Setting::where('key', 'channel-join')->first();
+        if (!is_null($setting) && $setting->value == 1) {
+            $this->ifUserIsJoined();
+            if (!$this->isJoined) {
+                return $this->joinFirst();
+            }
+        }
         if (!is_null($supportId) && !is_null($supportId->value)) {
             $buttons[] = [
                 ['text' => "👤 حساب کاربری", 'callback_data' => 'type=profile'],
@@ -1113,6 +1129,14 @@ class TelegramBotController extends Controller
 
     protected function addFund($data)
     {
+        $setting = Setting::where('key', 'channel-join')->first();
+        if (!is_null($setting) && $setting->value == 1) {
+            $this->ifUserIsJoined();
+            if (!$this->isJoined) {
+                return $this->joinFirst();
+            }
+        }
+
         $cartBeCart = Setting::where('key', 'cart_be_cart')->first();
         $gateway = Setting::where('key', 'gateway')->first();
         $crypto = Setting::where('key', 'crypto')->first();
@@ -1455,6 +1479,14 @@ class TelegramBotController extends Controller
     {
         $page = $type['page'] ?? 1;
 
+        $setting = Setting::where('key', 'channel-join')->first();
+        if (!is_null($setting) && $setting->value == 1) {
+            $this->ifUserIsJoined();
+            if (!$this->isJoined) {
+                return $this->joinFirst();
+            }
+        }
+
         $plan = Plans::where('type', '!=', null)->where('status', 1)->pluck('type')->toArray();
         $panel = Panels::where('panel_type', '!=', null)->where('status', 1)->pluck('type')->toArray();
 
@@ -1513,6 +1545,12 @@ class TelegramBotController extends Controller
         $service_id = $type['s_id'];
         $page = $type['page'] ?? 1;
 
+        $user = $this->user;
+        $telDetail = $user->tel_detail;
+        $telDetail['order-pasarguard-id'] = 0;
+        $user->tel_detail = $telDetail;
+        $user->save();
+
         $service = Service::find($service_id);
         if (is_null($service)) {
             return $this->sendTemporaryMessage('سرویس مورد نظر یافت نشد');
@@ -1539,6 +1577,12 @@ class TelegramBotController extends Controller
             $panelCountryIds,
             $inboundCountryIds
         )));
+
+        $pasarguard = Panels::where('status', 1)
+            ->where('panel_type', $service_id)
+            ->where('system_type', 'pasarguard')
+            ->where('status', 1)
+            ->first();
 
         $list = Countries::where('type', $service_id)
             ->where('type', $service_id)
@@ -1575,6 +1619,17 @@ class TelegramBotController extends Controller
             }
         }
 
+        if (!is_null($pasarguard)) {
+            $pasarguardDetail = $pasarguard->detail;
+            if (array_key_exists('status', $pasarguardDetail) && $pasarguardDetail['status'] == 1) {
+                $keyboard[][] = [
+                    'text' => "همه کشور ها",
+                    'callback_data' => "type=clientSelectPlan|s_id={$service->id}|co_id=0|p_id={$pasarguard->id}",
+                ];
+            }
+        }
+
+
         $pagination = $this->paginationFooterButton($list, $page, "clientSelectCountry|si_id=$service_id");
 
         if (!is_null($pagination)) {
@@ -1597,15 +1652,22 @@ class TelegramBotController extends Controller
     {
         $service_id = $type['s_id'];
         $country_id = $type['co_id'];
+        $pasarGuard_id = $type['p_id'] ?? 0;
         $page = $type['page'] ?? 1;
 
         $service = Service::find($service_id);
         if (is_null($service)) {
             return $this->sendTemporaryMessage('سرویس مورد نظر یافت نشد');
         }
+
         $country = Countries::find($country_id);
-        if (is_null($country)) {
+        if (is_null($country) && $pasarGuard_id == 0) {
             return $this->sendTemporaryMessage('کشور مورد نظر یافت نشد');
+        }
+        if ($pasarGuard_id != 0) {
+            $countryName = 'همه کشور ها';
+        } else {
+            $countryName = $country->name;
         }
 
         $allowSellExtra = Setting::where('key', 'extra')->first();
@@ -1621,8 +1683,8 @@ class TelegramBotController extends Controller
         $text .= "
 📦 <b>نوع سرویس:</b>
 <code>{$service->name}</code>
-🌐 <b>کشور انتخاب‌شده:</b>
-<code>{$country->name}</code>
+🌐 <b>کشور:</b>
+<code>{$countryName}</code>
 💡 لطفاً یکی از تعرفه‌های زیر را انتخاب کنید:";
 
         $keyboard = [];
@@ -1634,28 +1696,53 @@ class TelegramBotController extends Controller
         }
 
         if (count($list) > 0) {
-            foreach ($list as $item) {
-                $name = !is_null($item->name) ? $item->name : 'بدون نام';
-                $price = number_format($item->price);
-                $keyboard[] = [
-
-                    [
-                        'text' => "{$name} | مبلغ:$price T",
-                        'callback_data' => "type=$path|s_id={$service->id}|co_id={$country->id}|pl_id={$item->id}",
-                    ],
-                ];
-
+            $pasarguardPercent = 0;
+            if ($pasarGuard_id != 0) {
+                $pasarguard = Panels::find($pasarGuard_id);
+                $pasarguardDetail = $pasarguard->detail;
+                $pasarguardPercent = $pasarguardDetail['percent'];
             }
 
+
+            foreach ($list as $item) {
+                $name = !is_null($item->name) ? $item->name : 'بدون نام';
+
+                if ($pasarguardPercent != 0) {
+                    $basePrice = $item->price;
+                    $percentPrice = ($basePrice / 100) * $pasarguardPercent;
+                    $planPrice = $basePrice + $percentPrice;
+                    if ($item->discount != 0) {
+                        $discount = ($planPrice / 100) * $item->discount;
+                        $planPrice = $planPrice - $discount;
+                    }
+                    $price = number_format($planPrice);
+
+                } else {
+                    $planPrice = calculatePlanDiscount($item)['price'];
+                    $price = number_format($planPrice);
+                }
+
+
+                $discount = "";
+                if ($item->discount > 0) {
+                    $discount = "| تخفیف: {$item->discount}%";
+                }
+                $keyboard[] = [
+                    [
+                        'text' => "{$name} | $price T $discount",
+                        'callback_data' => "type=$path|s_id={$service->id}|co_id={$country?->id}|pl_id={$item->id}|p_id={$pasarGuard_id}",
+                    ],
+                ];
+            }
         }
 
-        $pagination = $this->paginationFooterButton($list, $page, "clientSelectPlan|si_id=$service_id|co_id=$country_id");
+        $pagination = $this->paginationFooterButton($list, $page, "clientSelectPlan|s_id=$service_id");
 
         if (!is_null($pagination)) {
             $keyboard[] = $pagination;
         }
 
-        $keyboard[] = $this->clientFooterButtons("type=clientSelectCountry|s_id=$service_id|co_id=$country_id");
+        $keyboard[] = $this->clientFooterButtons("type=clientSelectCountry|s_id=$service_id");
         $data = [
             'chat_id' => $this->chatId,
             'text' => trim($text),
@@ -1674,6 +1761,7 @@ class TelegramBotController extends Controller
         $service_id = $type['s_id'];
         $country_id = $type['co_id'];
         $plan_id = $type['pl_id'];
+        $pasarGuard_id = $type['p_id'] ?? 0;
         $page = $type['page'] ?? 1;
 
         $service = Service::find($service_id);
@@ -1682,8 +1770,13 @@ class TelegramBotController extends Controller
         }
 
         $country = Countries::find($country_id);
-        if (is_null($country)) {
+        if (is_null($country) && $pasarGuard_id == 0) {
             return $this->sendTemporaryMessage('کشور مورد نظر یافت نشد');
+        }
+        if ($pasarGuard_id != 0) {
+            $countryName = 'همه کشور ها';
+        } else {
+            $countryName = $country->name;
         }
 
         $plan = Plans::find($plan_id);
@@ -1696,15 +1789,14 @@ class TelegramBotController extends Controller
             return $this->home();
         }
 
-        $price = number_format($plan->price);
         $text = headTitle("🌍 انتخاب حجم اضافه ");
-        $text = "
+        $text .= "
 📦 <b>نوع سرویس:</b>
 <code>{$service->name}</code>
 🌐 <b>کشور:</b>
-<code>{$country->name}</code>
+<code>{$countryName}</code>
 🌐 <b>تعرفه:</b>
-<code>{$plan->name} | حجم: {$plan->bandwidth} GB | مبلغ:{$price} تومان</code>
+<code>{$plan->name} | حجم: {$plan->bandwidth} GB </code>
 💡 لطفاً یکی از گزینه زیر را انتخاب کنید:";
 
         $list = ExtraBandwidth::where('type', $service_id)->where('status', 1)->paginate(20);
@@ -1713,13 +1805,35 @@ class TelegramBotController extends Controller
         $keyboard = [];
         $row = [];
         if (count($list) > 0) {
+            $pasarguardPercent = 0;
+            if ($pasarGuard_id != 0) {
+                $pasarguard = Panels::find($pasarGuard_id);
+                $pasarguardDetail = $pasarguard->detail;
+                $pasarguardPercent = $pasarguardDetail['percent'];
+            }
+
             foreach ($list as $item) {
                 $name = !is_null($item->name) ? $item->name : 'بدون نام';
-                $price = calculateExtraDiscount($item, $perGbPrice);
-                $price = number_format($price['price']);
+
+
+                if ($pasarguardPercent != 0) {
+                    $basePrice = $item->name * $perGbPrice;
+                    $percentPrice = ($basePrice / 100) * $pasarguardPercent;
+                    $planPrice = $basePrice + $percentPrice;
+                    if ($item->discount != 0) {
+                        $discount = ($planPrice / 100) * $item->discount;
+                        $planPrice = $planPrice - $discount;
+                    }
+                    $price = number_format($planPrice);
+                } else {
+                    $price = calculateExtraDiscount($item, $perGbPrice);
+                    $price = number_format($price['price']);
+                }
+
+
                 $row[] = [
                     'text' => "{$name} GB | {$price} تومان",
-                    'callback_data' => "type=clientSelectCount|s_id={$service_id}|co_id={$country->id}|pl_id={$plan_id}|ex_id=$item->id",
+                    'callback_data' => "type=clientSelectCount|s_id={$service_id}|co_id={$country?->id}|pl_id={$plan_id}|ex_id=$item->id|p_id={$pasarGuard_id}",
                 ];
                 if (count($row) === 2) {
                     $keyboard[] = $row;
@@ -1732,13 +1846,13 @@ class TelegramBotController extends Controller
             }
         }
 
-        $pagination = $this->paginationFooterButton($list, $page, "clientSelectPlan|si_id=$service_id|co_id=$country_id");
+        $pagination = $this->paginationFooterButton($list, $page, "clientSelectPlan|si_id=$service_id|co_id=$country_id|p_id={$pasarGuard_id}");
 
         if (!is_null($pagination)) {
             $keyboard[] = $pagination;
         }
 
-        $keyboard[] = $this->clientFooterButtons("type=clientSelectPlan|s_id=$service_id|co_id=$country_id");
+        $keyboard[] = $this->clientFooterButtons("type=clientSelectPlan|s_id=$service_id|co_id=$country_id|p_id={$pasarGuard_id}");
         $data = [
             'chat_id' => $this->chatId,
             'text' => trim($text),
@@ -1756,6 +1870,7 @@ class TelegramBotController extends Controller
         $service_id = $type['s_id'];
         $country_id = $type['co_id'];
         $plan_id = $type['pl_id'];
+        $pasarGuard_id = $type['p_id'] ?? null;
         $extra = $type['ex_id'] ?? null;
         $page = $type['page'] ?? 1;
         $count = $type['cu'] ?? 1;
@@ -1775,8 +1890,13 @@ class TelegramBotController extends Controller
         }
 
         $country = Countries::find($country_id);
-        if (is_null($country)) {
+        if (is_null($country) && $pasarGuard_id == 0) {
             return $this->sendTemporaryMessage('کشور مورد نظر یافت نشد');
+        }
+        if ($pasarGuard_id != 0) {
+            $countryName = 'همه کشور ها';
+        } else {
+            $countryName = $country->name;
         }
 
         $plan = Plans::find($plan_id);
@@ -1798,14 +1918,13 @@ class TelegramBotController extends Controller
             $path = "clientSelectExtra";
         }
 
-        $price = number_format($plan->price);
         $text = headTitle("🌍انتخاب تعداد");
         $text .= "📦 <b>نوع سرویس:</b>
 <code>{$service->name}</code>
 🌐 <b>کشور:</b>
-<code>{$country->name}</code>
+<code>{$countryName}</code>
 🌐 <b>تعرفه:</b>
-<code>{$plan->name} | حجم: {$plan->bandwidth} GB | مبلغ:{$price} تومان</code>
+<code>{$plan->name} | حجم: {$plan->bandwidth} GB</code>
 {$extraText}
 💡 لطفاً تعداد را مشخص کنید:";
 
@@ -1817,7 +1936,7 @@ class TelegramBotController extends Controller
                 'text' => '➖',
                 'callback_data' => $count <= 1
                     ? 'ignore'
-                    : "type=clientSelectCount|s_id={$service_id}|co_id={$country->id}|pl_id={$plan_id}|ex_id={$extra}|cu={$decrement}",
+                    : "type=CSC|s_id={$service_id}|co_id={$country?->id}|pl_id={$plan_id}|ex_id={$extra}|cu={$decrement}|p_id={$pasarGuard_id}",
                 'style' => 'danger',
             ],
             [
@@ -1828,7 +1947,7 @@ class TelegramBotController extends Controller
                 'text' => '➕',
                 'callback_data' => $count >= 10
                     ? 'ignore'
-                    : "type=clientSelectCount|s_id={$service_id}|co_id={$country->id}|pl_id={$plan_id}|ex_id={$extra}|cu={$increment}",
+                    : "type=CSC|s_id={$service_id}|co_id={$country?->id}|pl_id={$plan_id}|ex_id={$extra}|cu={$increment}|p_id={$pasarGuard_id}",
                 'style' => 'success',
             ],
         ];
@@ -1836,13 +1955,13 @@ class TelegramBotController extends Controller
         $keyboard[] = [
             [
                 'text' => 'مرحله بعد',
-                'callback_data' => "type=clientSelectName|s_id={$service_id}|co_id={$country->id}|pl_id={$plan_id}|ex_id={$extra}|cu={$count}",
+                'callback_data' => "type=CLN|s_id={$service_id}|co_id={$country?->id}|pl_id={$plan_id}|ex_id={$extra}|cu={$count}|p_id={$pasarGuard_id}",
             ],
             [
                 'text' => '🔙 بازگشت',
-                'callback_data' => "type=$path|s_id=$service_id|co_id=$country_id|pl_id=$plan_id|ex_id=$extra",
+                'callback_data' => "type=$path|s_id=$service_id|co_id=$country_id|pl_id=$plan_id|ex_id=$extra|p_id={$pasarGuard_id}",
             ],
-        ];;
+        ];
         $data = [
             'chat_id' => $this->chatId,
             'text' => trim($text),
@@ -1861,6 +1980,7 @@ class TelegramBotController extends Controller
         $country_id = $type['co_id'];
         $plan_id = $type['pl_id'];
         $extra = $type['ex_id'] ?? null;
+        $pasarGuard_id = $type['p_id'] ?? 0;
         $count = $type['cu'] ?? 1;
 
         $user = $this->user;
@@ -1870,6 +1990,7 @@ class TelegramBotController extends Controller
         $tel_detail['order-service-id'] = $service_id;
         $tel_detail['order-country-id'] = $country_id;
         $tel_detail['order-plan-id'] = $plan_id;
+        $tel_detail['order-pasarguard-id'] = $pasarGuard_id;
         $tel_detail['order-extra'] = $extra;
         $tel_detail['order-count'] = $count;
 
@@ -1923,6 +2044,7 @@ class TelegramBotController extends Controller
         $plan_id = $tel_detail['order-plan-id'];
         $extra = $tel_detail['order-extra'];
         $count = $tel_detail['order-count'];
+        $pasarGuard_id = $tel_detail['order-pasarguard-id'] ?? 0;
 
         $service = Service::find($service_id);
         if (is_null($service)) {
@@ -1930,8 +2052,13 @@ class TelegramBotController extends Controller
         }
 
         $country = Countries::find($country_id);
-        if (is_null($country)) {
+        if (is_null($country) && $pasarGuard_id == 0) {
             return $this->sendTemporaryMessage('کشور مورد نظر یافت نشد');
+        }
+        if ($pasarGuard_id != 0) {
+            $countryName = 'همه کشور ها';
+        } else {
+            $countryName = $country->name;
         }
 
         $plan = Plans::find($plan_id);
@@ -1940,32 +2067,74 @@ class TelegramBotController extends Controller
         }
         $extraText = null;
 
-        if (!empty($extra)) {
-            $extra = ExtraBandwidth::find($extra);
-            if (is_null($plan)) {
-                return $this->sendTemporaryMessage('حجم اضافه مورد نظر یافت نشد');
-            }
-            $extraPrice = calculateExtraDiscount($extra, $service->price_per_gb)['price'];
-            $showPrice = number_format($extraPrice);
-            $extraText = "🌐 <b>حجم اضافه انتخاب شده انتخاب‌شده:</b>
-<code>{$extra->name} GB | مبلغ:{$showPrice} تومان</code>";
-            $extra = $extra->id;
+
+        $pasarguardPercent = 0;
+        if ($pasarGuard_id != 0) {
+            $pasarguard = Panels::find($pasarGuard_id);
+            $pasarguardDetail = $pasarguard->detail;
+            $pasarguardPercent = $pasarguardDetail['percent'];
         }
 
-        $price = number_format($plan->price);
+        if ($pasarguardPercent != 0) {
+            if (!empty($extra)) {
+                $extra = ExtraBandwidth::find($extra);
+                if (is_null($extra)) {
+                    return $this->sendTemporaryMessage('حجم اضافه مورد نظر یافت نشد');
+                }
+                $basePrice = $extra->name * $service->price_per_gb;
+                $percentPrice = ($basePrice / 100) * $pasarguardPercent;
+                $planPrice = $basePrice + $percentPrice;
+                if ($extra->discount != 0) {
+                    $discount = ($planPrice / 100) * $extra->discount;
+                    $extraPrice = $planPrice - $discount;
+                }
+                $extra = $extra->id;
+            }
 
-        $total = ($plan->price + $extraPrice) * $count;
 
+            if ($pasarguardPercent != 0) {
+                $basePrice = $plan->price;
+                $percentPrice = ($basePrice / 100) * $pasarguardPercent;
+                $planPrice = $basePrice + $percentPrice;
+                if ($plan->discount != 0) {
+                    $discount = ($planPrice / 100) * $plan->discount;
+                    $planPrice = $planPrice - $discount;
+                }
+                $price = number_format($planPrice);
 
+            } else {
+                $planPrice = calculatePlanDiscount($plan)['price'];
+            }
+
+            $total = ($planPrice + $extraPrice) * $count;
+
+        } else {
+            if (!empty($extra)) {
+                $extra = ExtraBandwidth::find($extra);
+                if (is_null($plan)) {
+                    return $this->sendTemporaryMessage('حجم اضافه مورد نظر یافت نشد');
+                }
+                $extraPrice = calculateExtraDiscount($extra, $service->price_per_gb)['price'];
+                $showPrice = number_format($extraPrice);
+                $extraText = "🌐 <b>حجم اضافه انتخاب شده انتخاب‌شده:</b>
+<code>{$extra->name} GB | مبلغ:{$showPrice} تومان</code>";
+                $extra = $extra->id;
+            }
+
+            $planPrice = calculatePlanDiscount($plan)['price'];
+            $total = ($planPrice + $extraPrice) * $count;
+        }
         $preOrderData = [
             'service-id' => $service_id,
             'country-id' => $country_id,
             'plan-id' => $plan_id,
+            'pasarguard-id' => $pasarGuard_id,
             'extra' => $extra,
             'count' => $count,
             'name' => $name,
             'price' => $total
         ];
+
 
         $preOrder = new PreOrder();
         $preOrder->user_id = $user->id;
@@ -1983,13 +2152,12 @@ class TelegramBotController extends Controller
         $payment->type = 1;
         $payment->expired_at = Carbon::now();
         $payment->save();
-
         $price = number_format($payment->price);
 
         $text = headTitle("🌍 انتخاب نحوه پرداخت");
         $text .= "
 📦 <b>نوع سرویس:</b> <code>{$service->name}</code>
-🌐 <b>کشور:</b> <code>{$country->name}</code>
+🌐 <b>کشور:</b> <code>{$countryName}</code>
 🌐 <b>تعرفه:</b> <code>{$plan->name}</code>
 {$extraText}
 🌐 <b>تعداد:</b><code>{$count} عدد</code>
@@ -2017,7 +2185,7 @@ class TelegramBotController extends Controller
         $keyboard[] = [
             [
                 'text' => '🔙 بازگشت',
-                'callback_data' => "type=clientSelectName|s_id={$service_id}|co_id={$country->id}|pl_id={$plan_id}|ex_id={$extra}|cu={$count}",
+                'callback_data' => "type=clientSelectName|s_id={$service_id}|co_id={$country?->id}|pl_id={$plan_id}|ex_id={$extra}|cu={$count}",
             ],
         ];
         $data = [
@@ -2028,7 +2196,6 @@ class TelegramBotController extends Controller
                 'inline_keyboard' => $keyboard
             ]),
         ];
-
         return $this->sendMessage($data, 'message');
 
     }
@@ -2629,6 +2796,9 @@ class TelegramBotController extends Controller
                 $data['panel'] = Panels::find($activeInbound->panel_id);
             }
         }
+        if (array_key_exists('pasarguard-id', $orderDetail) && $orderDetail['pasarguard-id'] != 0) {
+            $data['panel'] = Panels::find($orderDetail['pasarguard-id']);
+        }
         $data['targetUser'] = $targetUser;
         $data['payment'] = $payment;
         $data['preOrder'] = $preOrder;
@@ -2653,14 +2823,21 @@ class TelegramBotController extends Controller
         $orderDetail = $data['orderDetail'];
         $plan = $data['plan'];
 
-
         if ($panel->system_type == 'pasarguard') {
-
-
-            $activeGroup = Inbounds::where('panel_id', $panel->id)
-                ->where('country_id', $orderDetail['country-id'])
-                ->where('status', 1)
-                ->first();
+            if (array_key_exists('pasarguard-id', $orderDetail) && $orderDetail['pasarguard-id'] != 0) {
+                $activeGroup = Inbounds::where('panel_id', $panel->id)
+                    ->where('status', 1)
+                    ->pluck('inbound_id')
+                    ->toArray();
+                $inboundId = 0;
+            } else {
+                $activeGroup = Inbounds::where('panel_id', $panel->id)
+                    ->where('country_id', [1])
+                    ->where('status', 1)
+                    ->pluck('inbound_id')
+                    ->toArray();
+                $inboundId = $activeGroup[0];
+            }
 
             $pasarGuard = new PasarGuard([
                 'url' => $panel->url,
@@ -2696,7 +2873,7 @@ class TelegramBotController extends Controller
 
                 $result = $pasarGuard->createUserAndGetConfig([
                     'username' => $remark,
-                    'group_id' => $activeGroup->inbound_id,
+                    'group_id' => $activeGroup,
                     'days' => (int)$plan->days,
                     'total_gb' => $bandwidth,
                     'client_type' => 'links',
@@ -2720,7 +2897,7 @@ class TelegramBotController extends Controller
                     'sub_id' => $result['user']['subscription_url'],
                     'plan' => $plan->id,
                     'panel_id' => $panel->id,
-                    'inbound_id' => $activeGroup->id,
+                    'inbound_id' => $inboundId,
                     'system_type' => 'pasarguard',
                     'expire_at' => Carbon::now()->addDays((int)$plan->days)->format('Y-m-d H:i:s'),
                     'status' => 1,
@@ -2745,7 +2922,15 @@ class TelegramBotController extends Controller
             ]);
 
             foreach ($orders as $singleOrder) {
-                $photo = "https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=" . urlencode($singleOrder['code']);
+                if (array_key_exists('pasarguard-id', $orderDetail) && $orderDetail['pasarguard-id'] != 0) {
+                    $code = $singleOrder['sub'];
+                    $codeText = "";
+                } else {
+                    $code = $singleOrder['code'];
+                    $codeText = "🔑 کد کانفیگ:
+<code>{$singleOrder['code']}</code>";
+                }
+                $photo = "https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=" . urlencode($code);
                 $this->telegramSdk->sendPhoto([
                     'chat_id' => $targetUser->tel_id,
                     'photo' => $photo,
@@ -2754,10 +2939,7 @@ class TelegramBotController extends Controller
 
 🧾 شماره سفارش:
 <code>{$singleOrder['order-id']}</code>
-
-🔑 کد کانفیگ:
-<code>{$singleOrder['code']}</code>
-
+$codeText
 🔗 لینک ساب:
 <code>{$singleOrder['sub']}</code>
 ",
@@ -3288,7 +3470,6 @@ class TelegramBotController extends Controller
 
         $subUrl = rtrim($panel->sub_address, '/') . $order->sub_id;
 
-        $configCode = htmlspecialchars($configCodeRaw, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $subUrlSafe = htmlspecialchars($subUrl, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
         $message = "<b>✅ جزئیات سفارش #{$order->id}</b>\n\n";
@@ -3296,7 +3477,12 @@ class TelegramBotController extends Controller
         $message .= "<b>حجم مصرف شده:</b> {$totalUsed} گیگ\n";
         $message .= "<b>حجم باقی مانده:</b> {$left} گیگ\n";
         $message .= "<b>زمان پایان:</b> {$expireTime}\n\n";
-        $message .= "<b>کد کانفیگ:</b>\n<code>{$configCode}</code>\n\n";
+        if ($order->inbound_id != 0) {
+            $configCode = htmlspecialchars($configCodeRaw, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $message .= "<b>کد کانفیگ:</b>\n<code>{$configCode}</code>\n\n";
+        } else {
+            $code = $subUrl;
+        }
         $message .= "<b>لینک ساب:</b>\n<code>{$subUrlSafe}</code>";
 
         /*
@@ -3556,9 +3742,29 @@ class TelegramBotController extends Controller
         $plans = Plans::where('type', $panel->panel_type)->where('status', 1)->orderby('id')->get();
 
         if (count($plans) > 0) {
+            $pasarguardPercent = 0;
+            if ($order->inbound_id == 0) {
+                $pasarguardDetail = $panel->detail;
+                $pasarguardPercent = $pasarguardDetail['percent'];
+            }
+
+
             foreach ($plans as $item) {
+
+                if ($pasarguardPercent != 0) {
+                    $basePrice = $item->price;
+                    $percentPrice = ($basePrice / 100) * $pasarguardPercent;
+                    $planPrice = $basePrice + $percentPrice;
+                    if ($item->discount != 0) {
+                        $discount = ($planPrice / 100) * $item->discount;
+                        $planPrice = $planPrice - $discount;
+                    }
+                    $price = number_format($planPrice);
+                } else {
+                    $planPrice = calculatePlanDiscount($item)['price'];
+                    $price = number_format($planPrice);
+                }
                 $name = !is_null($item->name) ? $item->name : 'بدون نام';
-                $price = number_format($item->price);
                 $keyboard[] = [
 
                     [
@@ -3593,16 +3799,37 @@ class TelegramBotController extends Controller
         $orderId = $data['o_id'];
         $planId = $data['pl_id'];
         $user = $this->user;
-
+        $order = Orders::find($orderId);
         $plan = Plans::find($planId);
-        $price = number_format($plan->price);
+        $panel = Panels::find($order->panel_id);
+
+        $pasarguardPercent = 0;
+        if ($order->inbound_id == 0) {
+            $pasarguardDetail = $panel->detail;
+            $pasarguardPercent = $pasarguardDetail['percent'];
+        }
+
+        if ($pasarguardPercent != 0) {
+            $basePrice = $plan->price;
+            $percentPrice = ($basePrice / 100) * $pasarguardPercent;
+            $planPrice = $basePrice + $percentPrice;
+            if ($plan->discount != 0) {
+                $discount = ($planPrice / 100) * $plan->discount;
+                $planPrice = $planPrice - $discount;
+            }
+            $price = number_format($planPrice);
+        } else {
+            $planPrice = calculatePlanDiscount($plan)['price'];
+            $price = number_format($planPrice);
+        }
 
         $detail['plan-id'] = $plan->id;
+
 
         $payment = new Payment();
         $payment->user_id = $user->id;
         $payment->order_id = $orderId;
-        $payment->price = $plan->price;
+        $payment->price = $planPrice;
         $payment->status = 0;
         $payment->detail = $detail;
         $payment->type = 2;
@@ -4044,10 +4271,29 @@ class TelegramBotController extends Controller
         $keyboard = [];
         $row = [];
         if (count($list) > 0) {
+
+            $pasarguardPercent = 0;
+            if ($order->inbound_id == 0) {
+                $pasarguardDetail = $panel->detail;
+                $pasarguardPercent = $pasarguardDetail['percent'];
+            }
+
             foreach ($list as $item) {
                 $name = !is_null($item->name) ? $item->name : 'بدون نام';
-                $price = calculateExtraDiscount($item, $perGbPrice);
-                $price = number_format($price['price']);
+                if ($pasarguardPercent != 0) {
+                    $basePrice = $item->name * $perGbPrice;
+                    $percentPrice = ($basePrice / 100) * $pasarguardPercent;
+                    $planPrice = $basePrice + $percentPrice;
+                    if ($item->discount != 0) {
+                        $discount = ($planPrice / 100) * $item->discount;
+                        $planPrice = $planPrice - $discount;
+                    }
+                    $price = number_format($planPrice);
+                } else {
+                    $price = calculateExtraDiscount($item, $perGbPrice);
+                    $price = number_format($price['price']);
+                }
+
                 $row[] = [
                     'text' => "{$name} GB | {$price} تومان",
                     'callback_data' => "type=clientSubmitExtra|o_id={$order->id}|ex_id=$item->id",
@@ -4083,6 +4329,8 @@ class TelegramBotController extends Controller
         $extraId = $data['ex_id'];
         $user = $this->user;
 
+        $order = Orders::find($orderId);
+        $panel = Panels::find($order->panel_id);
         $extra = ExtraBandwidth::find($extraId);
         $service = Service::find($extra->type);
         if (is_null($service)) {
@@ -4090,14 +4338,34 @@ class TelegramBotController extends Controller
         }
         $perGbPrice = $service->price_per_gb;
 
-        $price = number_format($extra->name * $perGbPrice);
+        $pasarguardPercent = 0;
+        if ($order->inbound_id == 0) {
+            $pasarguardDetail = $panel->detail;
+            $pasarguardPercent = $pasarguardDetail['percent'];
+        }
+
+        if ($pasarguardPercent != 0) {
+            $basePrice = $extra->name * $perGbPrice;
+            $percentPrice = ($basePrice / 100) * $pasarguardPercent;
+            $planPrice = $basePrice + $percentPrice;
+            if ($extra->discount != 0) {
+                $discount = ($planPrice / 100) * $extra->discount;
+                $planPrice = $planPrice - $discount;
+            }
+            $extraPrice = $planPrice;
+            $price = number_format($planPrice);
+        } else {
+            $price = calculateExtraDiscount($extra, $perGbPrice);
+            $extraPrice = $price['price'];
+            $price = number_format($price['price']);
+        }
 
         $detail['extra-id'] = $extra->id;
 
         $payment = new Payment();
         $payment->user_id = $user->id;
         $payment->order_id = $orderId;
-        $payment->price = $extra->name * $perGbPrice;
+        $payment->price = $extraPrice;
         $payment->status = 0;
         $payment->detail = $detail;
         $payment->type = 3;
@@ -6148,11 +6416,16 @@ class TelegramBotController extends Controller
                     'callback_data' => "type=adminGetInbounds|id=$panel->id"
                 ]
             ];
-
             $keyboard[] = [
                 [
                     'text' => 'لیست گروه ها',
                     'callback_data' => "type=adminPasarGuardGroups|id=$panel->id",
+                ]
+            ];
+            $keyboard[] = [
+                [
+                    'text' => 'فروش از چند کشور',
+                    'callback_data' => "type=adminPasarGuardSellSetting|id=$panel->id",
                 ]
             ];
         } else {
@@ -6770,7 +7043,7 @@ class TelegramBotController extends Controller
                     $valueText = "--";
                 }
             } elseif ($key == 'price') {
-                $valueText = number_format($field['value']) . ' تومان ';
+                $valueText = number_format($plan->price) . ' تومان ';
             } elseif ($key == 'status') {
                 $valueText = match ((int)$field['value']) {
                     1 => '🟢 فعال',
@@ -6798,6 +7071,9 @@ class TelegramBotController extends Controller
                 $row = [];
             }
         }
+
+        $price = number_format(calculatePlanDiscount($plan)['price']);
+        $text .= "▪️ <b>قیمت نهایی</b>: <code>{$price}</code>\n";
 
         if (!empty($row)) {
             $keyboard[] = $row;
@@ -8276,32 +8552,6 @@ class TelegramBotController extends Controller
 
     protected function adminBotSetting()
     {
-        /*
-        |--------------------------------------------------------------------------
-        | Settings (ensure existence)
-        |--------------------------------------------------------------------------
-        */
-
-        $supportChannel = Setting::firstOrCreate(
-            ['key' => 'support_id'],
-            ['name' => 'آیدی کانال پشتیبانی', 'value' => 0]
-        );
-
-        $reportChannel = Setting::firstOrCreate(
-            ['key' => 'report_id'],
-            ['name' => 'آیدی کانال گزارشات', 'value' => 0]
-        );
-
-        $transactionChannel = Setting::firstOrCreate(
-            ['key' => 'cart_be_cart_id'],
-            ['name' => 'آیدی کانال تایید تراکنشات', 'value' => 0]
-        );
-
-        /*
-        |--------------------------------------------------------------------------
-        | Text
-        |--------------------------------------------------------------------------
-        */
 
         $text = headTitle("⚙️ تنظیمات ربات");
         $text .= "📌 در این بخش می‌توانید تنظیمات اصلی ربات را مدیریت کنید.\n\n";
@@ -8316,54 +8566,16 @@ class TelegramBotController extends Controller
         $buttons = [];
 
         $buttons[] = [
-
-        ];
-
-        $buttons[] = [
-            [
-                'text' => "غیرفعال",
-                'callback_data' => "type=adminChangeSetting|k=report_id|p_path=adminBotSetting",
-            ],
-            [
-                'text' => "فعال",
-                'callback_data' => "type=adminChangeSetting|k=report_id|p_path=adminBotSetting",
-            ],
-            [
-                'text' => "ثبت نام ربات",
-                'callback_data' => "type=adminChangeSetting|k=report_id|p_path=adminBotSetting",
-            ]
-        ];
-
-
-        $buttons[] = [
-            [
-                'text' => "غیرفعال",
-
-                'callback_data' => "type=adminChangeSetting|k=report_id|p_path=adminBotSetting",
-            ], [
-                'text' => "فعال",
-
-                'callback_data' => "type=adminChangeSetting|k=report_id|p_path=adminBotSetting",
-            ], [
-                'text' => "جوین اجباری",
-                'callback_data' => "type=adminChangeSetting|k=report_id|p_path=adminBotSetting",
-            ]
-        ];
-
-
-        $buttons[] = [
             [
                 'text' => "=====  آیدی کانال ها  =====",
                 'callback_data' => "ignore",
                 'style' => 'danger'
             ]
-            ,
         ];
-
         $buttons[] = [
             [
-                'text' => "💳 پشتیبانی",
-                'callback_data' => "type=adminChangeSetting|k=support_id|p_path=adminBotSetting",
+                'text' => "✅ تراکنشات",
+                'callback_data' => "type=adminChangeSetting|k=cart_be_cart_id|p_path=adminBotSetting",
             ]
             , [
                 'text' => "📊 گزارشات",
@@ -8373,11 +8585,11 @@ class TelegramBotController extends Controller
 
         $buttons[] = [
             [
-                'text' => "✅ تراکنشات",
-                'callback_data' => "type=adminChangeSetting|k=cart_be_cart_id|p_path=adminBotSetting",
+                'text' => "💳 پشتیبانی",
+                'callback_data' => "type=adminChangeSetting|k=support_id|p_path=adminBotSetting",
             ], [
                 'text' => "✅ کانال",
-                'callback_data' => "type=adminChangeSetting|k=cart_be_cart_id|p_path=adminBotSetting",
+                'callback_data' => "type=adminChangeSetting|k=channel_id|p_path=adminBotSetting",
             ]
         ];
 
@@ -8468,8 +8680,7 @@ class TelegramBotController extends Controller
         $value = $type['value'] ?? $this->text;
 
         if ($key == 'support_id' || $key == 'report_id' || $key == 'cart_be_cart_id') {
-            $value = str_replace('https://t.me/', '', $value);
-            $value = str_replace('@', '', $value);
+            $value = str_replace(['https://t.me/', '@'], '', $value);
         }
 
         if ($value === null || $value === '') {
@@ -9539,8 +9750,7 @@ class TelegramBotController extends Controller
             $text .= "▪️ <b>برای محاسبه مبلغ لطفا نوع را انتخاب نمایید</b>\n\n";
         } else {
             $price = calculateExtraDiscount($plan, $pricePerGb);
-
-            $basePrice = number_format($price['basePrice']);
+            $basePrice = number_format($price['base-price']);
             $price = number_format($price['price']);
 
             $text .= "▪️ <b>مبلغ</b>: <code>{$basePrice}</code> تومان\n";
@@ -10231,6 +10441,125 @@ class TelegramBotController extends Controller
 
     }
 
+    protected function adminPasarGuardSellSetting($type)
+    {
+        $id = $type['id'];
+        $panel = Panels::find($id);
+        if (is_null($panel)) {
+            return $this->sendTemporaryMessage('panel not found please try again');
+        }
+        $text = headTitle("📋 تنظیمات فروش چند کشور");
+        $planDetail = $panel->detail;
+        $multiSellStatus = 0;
+        if (array_key_exists('status', $planDetail) && $planDetail['status'] == 1) {
+            $multiSellStatus = 1;
+        }
+        $keyboard[] = [
+            [
+                'text' => "وضعیت فروش:" . ($multiSellStatus == 1 ? ' فعال ' : ' غیرفعال '),
+                'callback_data' => "type=adminPGSellChangeStatus|id=$panel->id|status={$multiSellStatus}",
+            ]
+        ];
+        $keyboard[] = [
+            [
+                'text' => 'درصد افزایش مبلغ',
+                'callback_data' => "type=adminPGSellChangePercent|id=$panel->id",
+            ]
+        ];
+        $keyboard[] = $this->adminFooterButtons("type=adminPanelDetail|id=$panel->id");
+        $data = [
+            'chat_id' => $this->chatId,
+            'text' => trim($text),
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => $keyboard
+            ]),
+        ];
+        return $this->sendMessage($data, 'message');
+    }
+
+    protected function adminPGSellChangeStatus($data)
+    {
+        $id = $data['id'];
+        $status = $data['status'];
+        $panel = Panels::find($id);
+        $detail = $panel->detail;
+        if ($status == 1) {
+            $status = 0;
+        } else {
+            $status = 1;
+        }
+        $detail['status'] = $status;
+
+        $panel->detail = $detail;
+        $panel->save();
+
+        return $this->adminPasarGuardSellSetting($data);
+    }
+
+    protected function adminPGSellChangePercent($data)
+    {
+        $id = $data['id'];
+        $user = $this->user;
+        $telDetail = $user->tel_detail;
+        $telDetail['panel-id'] = $id;
+        $user->tel_detail = $telDetail;
+        $user->save();
+
+        $panel = Panels::find($id);
+        $discount = $panel->detail;
+
+        $oldValue = $discount['percent'] ?? '—';
+
+        $text = "✏️ درصد مورد نظر را وارد کنید\n";
+        $text .= "📌 مقدار قبلی: <code>" . htmlspecialchars((string)$oldValue) . "</code> \n";
+
+        $keyboard[] = $this->adminFooterButtons("type=adminPanelDetail|id={$id}");
+
+
+        $data = [
+            'chat_id' => $this->chatId,
+            'text' => trim($text),
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => $keyboard
+            ]),
+        ];
+
+        $this->updatePath('adminPGSellChangePercentSubmit');
+
+        return $this->sendMessage($data, 'message');
+    }
+
+    protected function adminPGSellChangePercentSubmit()
+    {
+        $user = $this->user;
+        $telDetail = $user->tel_detail;
+        $id = $telDetail['panel-id'];
+
+        $panel = Panels::find($id);
+        $detail = $panel->detail;
+
+        $detail['percent'] = $this->text;
+        $panel->detail = $detail;
+        $panel->save();
+
+        $text = "فیلد درصد با موفقیت ویرایش شد.";
+
+        $keyboard[] = $this->adminFooterButtons("type=adminPanelDetail|id={$id}");
+
+        $data = [
+            'chat_id' => $this->chatId,
+            'text' => trim($text),
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => $keyboard
+            ]),
+        ];
+
+        return $this->sendMessage($data, 'message');
+
+    }
 
     protected function adminChargeAmount($data)
     {
@@ -10391,8 +10720,56 @@ class TelegramBotController extends Controller
 
     protected function adminMessage($data)
     {
-        $message = Message::ordebyDesc('id')->paginate(10);
+        $page = $data['page'] ?? 1;
 
+        $messages = Message::ordebyDesc('id')
+            ->paginate(10, ['*'], 'page', $page);
+
+        $keyboard = [];
+        foreach ($messages as $message) {
+
+            $btnText = $message->status == 1 ? " 🟢" : ($message->status == -1 ? " 🔴" : " 🟡");
+            $btnText .= $message->title;
+            $row[] = [
+                'text' => $btnText,
+                'callback_data' => "type=adminMessageSingle|$message->id"
+            ];
+            $keyboard[] = $row;
+        }
+
+        $text = headTitle('لیست پیام های ارسالی');
+        $text .= 'لیست پیام های ارسالی به کاربر';
+
+
+        $keyboard[] = [
+            [
+                'text' => 'افزودن',
+                'callback_data' => 'type=adminOrderSearch'
+            ],
+        ];
+
+        $pagination = $this->paginationFooterButton(
+            $messages,
+            $page,
+            "adminMessage"
+        );
+
+        if (!empty($pagination)) {
+            $keyboard[] = $pagination;
+        }
+
+
+        $data = [
+            'chat_id' => $this->chatId,
+            'text' => trim($text),
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => $keyboard
+            ]),
+        ];
+
+
+        return $this->sendMessage($data, 'message');
     }
 
     // Orders
@@ -10506,7 +10883,7 @@ class TelegramBotController extends Controller
 
         $pagination = [];
 
-        $callbackBase = 'type=adminOrdersList';
+        $callbackBase = "type=adminOrdersList|search={$search}|userId={$userId}";
 
         if (!empty($filter)) {
             $callbackBase .= '|filter=' . $filter;
@@ -10516,38 +10893,16 @@ class TelegramBotController extends Controller
             $callbackBase .= '|search=' . $search;
         }
 
-        if ($orders->currentPage() > 1) {
+        $pagination = $this->paginationFooterButton(
+            $orders,
+            $page,
+            $callbackBase
+        );
 
-            $pagination[] = [
-                'text' => '⬅️ قبلی',
-                'callback_data' => $callbackBase . '|page=' . ($page - 1)
-            ];
-        } else {
-            $pagination[] = [
-                'text' => '⬅️ قبلی',
-                'callback_data' => 'ignore'
-            ];
+        if (!empty($pagination)) {
+            $keyboard[] = $pagination;
         }
 
-        $pagination[] = [
-            'text' => "📄 {$orders->currentPage()} / {$orders->lastPage()}",
-            'callback_data' => 'ignore'
-        ];
-
-        if ($orders->hasMorePages()) {
-
-            $pagination[] = [
-                'text' => 'بعدی ➡️',
-                'callback_data' => $callbackBase . '|page=' . ($page + 1)
-            ];
-        } else {
-            $pagination[] = [
-                'text' => 'بعدی ➡️',
-                'callback_data' => 'ignore'
-            ];
-        }
-
-        $keyboard[] = $pagination;
 
         /*
         |--------------------------------------------------------------------------

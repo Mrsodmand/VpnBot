@@ -274,16 +274,25 @@ if (!function_exists('getInbound')) {
     }
 }
 
-if (!function_exists('calculateDiscount')) {
+if (!function_exists('calculateExtraDiscount')) {
     function calculateExtraDiscount($plan, $pricePerGb)
     {
-
         $basePrice = $plan->name * $pricePerGb;
-
         $discount = $plan->discount ?? 0;
-
         $price = $basePrice - ($basePrice * $discount / 100);
+        return [
+            'base-price' => $basePrice,
+            'price' => $price,
+        ];
+    }
+}
 
+if (!function_exists('calculatePlanDiscount')) {
+    function calculatePlanDiscount($plan)
+    {
+        $basePrice = $plan->price;
+        $discount = $plan->discount ?? 0;
+        $price = $basePrice - ($basePrice * $discount / 100);
         return [
             'base-price' => $basePrice,
             'price' => $price,
@@ -1057,3 +1066,4 @@ function clientGetSanaieSinlgeDetail($panel, $order)
     ];
 
 }
+
