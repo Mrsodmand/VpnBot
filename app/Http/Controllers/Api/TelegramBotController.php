@@ -2913,7 +2913,7 @@ class TelegramBotController extends Controller
                 $orders[] = [
                     'order-id' => $Order->id,
                     'code' => $config,
-                    'sub' => "{$panel->sub_address}/{$Order->sub_id}",
+                    'sub' => "{$panel->sub_address}{$Order->sub_id}",
                     'remark' => $Order->remark,
                 ];
                 $successCount++;
