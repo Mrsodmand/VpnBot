@@ -2652,7 +2652,7 @@ class TelegramBotController extends Controller
         }
 
         if ($payment->status == 0) {
-//            $payment->status = 1;
+            $payment->status = 1;
             $payment->save();
             return $this->finalPaymentStep($payment);
         }
@@ -2919,10 +2919,10 @@ class TelegramBotController extends Controller
                 $successCount++;
             }
 
-//            $preOrder->update([
-//                'status' => $successCount == $preOrder->count ? 1 : 0,
-//                'count_left' => max(0, $preOrder->count_left - $successCount),
-//            ]);
+            $preOrder->update([
+                'status' => $successCount == $preOrder->count ? 1 : 0,
+                'count_left' => max(0, $preOrder->count_left - $successCount),
+            ]);
 
             foreach ($orders as $singleOrder) {
                 if (array_key_exists('pasarguard-id', $orderDetail) && $orderDetail['pasarguard-id'] != 0) {
