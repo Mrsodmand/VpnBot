@@ -10,3 +10,5 @@ Route::get('setWebhook',[DefaultController::class,'setWebhook']);
 Route::get('deleteWebhook',[DefaultController::class,'deleteWebhook']);
 Route::get('export',[DefaultController::class,'exportData']);
 Route::get('send-bulk-message',[JobController::class,'sendBulkMessage']);
+
+Route::get('importUsers',[DefaultController::class,'importUsers']);

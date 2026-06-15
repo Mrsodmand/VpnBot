@@ -11,6 +11,7 @@ use App\Models\Setting;
 use App\Models\User;
 use App\Services\Telegram;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class DefaultController extends Controller
 {
@@ -297,6 +298,38 @@ class DefaultController extends Controller
         return $telegram->deleteWebhook([
             'drop_pending_updates' => true
         ]);
+    }
+
+    public function importUsers()
+    {
+        $users = DB::table('customer')
+            ->whereNot('tel_id')
+            ->where('import', 0)
+            ->get();
+
+
+
+        foreach ($users as $user) {
+            $newUser = User::where('tel_id', $user->tel_id)->first();
+            if (is_null($newUser)) {
+                $newUser = new User();
+                $newUser->first_name = $user->f_name;
+                $newUser->last_name = $user->l_name;
+                $newUser->tel_id = $user->tel_id;
+                $newUser->balance = $user->wallet;
+                $newUser->parent = $user->parent ?? 0;
+                $newUser->status = 1;
+                $newUser->path = 'start';
+                $newUser->save();
+
+            } else {
+                $newUser->balance = $user->wallet + $newUser->balance;
+                $newUser->save();
+            }
+            DB::table('customer')
+                ->where('id', $user->id)
+                ->update(['import' => 1]);
+        }
     }
 
 }
