@@ -24,6 +24,8 @@ use App\Models\User;
 use App\Services\Telegram;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 
@@ -538,6 +540,10 @@ class TelegramBotController extends Controller
             case "adminOrderShowCode":
                 return $this->adminOrderShowCode($type);
                 break;
+
+            case "ipsvp":
+                return $this->ipsvp($type);
+                break;
         }
 
 //        } catch (\Exception $exception) {
@@ -942,7 +948,6 @@ class TelegramBotController extends Controller
     private function updatePath($path)
     {
         $user = $this->user;
-
         $user->path = $path;
         $user->save();
     }
@@ -1627,7 +1632,7 @@ class TelegramBotController extends Controller
                     'callback_data' => "type=clientSelectPlan|s_id={$service->id}|co_id=0|p_id={$pasarguard->id}",
                 ];
             }
-            $text .="
+            $text .= "
 گزینه همه کشورها:
 با انتخاب این نوع سفارش شما دسترسی برای اتصال با تمام کشور ها رو بصورت لینک ساب اسکریپشن دارید.";
         }
@@ -11580,6 +11585,55 @@ $codeText
         return $this->sendMessage($data, 'message');
     }
 
+
+    public function ipsvp()
+    {
+        $update = $this->telData;
+
+        $callbackData = data_get($update, 'callback_query.data');
+
+        try {
+            $wordpressWebhookUrl = 'https://ip-sabet.me/wp-json/ipsvp/v1/telegram/yUYdlWxRO0B6UiKNTPRt0yDP';
+
+            $response = Http::timeout(15)
+                ->acceptJson()
+                ->asJson()
+                ->post($wordpressWebhookUrl, $update);
+
+            if (!$response->successful()) {
+                Log::error('IP Sabet WP webhook failed', [
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                    'data' => $callbackData,
+                ]);
+                return $this->telegramSdk->answerCallback([
+                    'callback_query_id' => $this->callbackId,
+                    'text' => 'خطا در ارتباط با سایت. لطفا از پنل ادمین بررسی کنید.',
+                    'show_alert' => true,
+                    'cache_time' => 1,
+                ]);
+            }
+
+            return response()->json(['ok' => true]);
+
+        } catch (\Throwable $e) {
+            Log::error('IP Sabet WP webhook exception', [
+                'message' => $e->getMessage(),
+                'data' => $callbackData,
+            ]);
+
+            return $this->telegramSdk->answerCallback([
+                'callback_query_id' => $this->callbackId,
+                'text' => 'خطا در پردازش درخواست.',
+                'show_alert' => true,
+                'cache_time' => 1,
+            ]);
+
+            return response()->json(['ok' => true]);
+        }
+
+
+    }
     /**
      * Admin Area
      */
