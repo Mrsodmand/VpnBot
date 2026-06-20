@@ -169,14 +169,14 @@ class WpSyncService
             $detail['panel_name'] = $panel->name ?? null;
         }
         $expireAt = !empty($siteOrder['approved_at']) ? Carbon::parse($siteOrder['approved_at'])->addDays((int) ($siteOrder['days'] ?? 0)) : now()->addDays(max(1, (int) ($siteOrder['days'] ?? 1)));
-
+        $status = $siteOrder['status']  == "created" ? 1 : -1;
         $payload = [
             'user_id' => $user->id,
             'remark' => $siteOrder['pg_username'] ?: ($siteOrder['order_code'] ?? ('SITE-' . $siteOrderId)),
             'uid' => (string) ($siteOrder['pg_user_id'] ?? ''),
             'sub_id' => (string) ($siteOrder['subscription_url'] ?? ''),
-            'plan' => trim(($siteOrder['plan_title'] ?? '') . ' | ' . ((int) ($siteOrder['gb'] ?? 0)) . 'GB / ' . ((int) ($siteOrder['days'] ?? 0)) . ' روز'),
-            'status' => (string) ($siteOrder['status'] ?? 'created'),
+            'plan' => 0,
+            'status' => $status,
             'panel_id' => $panel?->id,
             'inbound_id' => 0,
             'system_type' => 'wordpress',
