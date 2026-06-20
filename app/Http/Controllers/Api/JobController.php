@@ -7,8 +7,10 @@ use App\Models\HegzaIp;
 use App\Models\HegzaMessage;
 use App\Models\HegzaUser;
 use App\Models\Message;
+use App\Models\TelegramData;
 use App\Models\User;
 use App\Services\Telegram;
+use Illuminate\Http\Request;
 
 class JobController extends Controller
 {
@@ -118,6 +120,25 @@ class JobController extends Controller
     public function expireOrders()
     {
 
+    }
+
+    public function ramzinoFailCallback(Request $request)
+    {
+        $data = $request->all();
+        $orderId = $data['order_id'];
+
+        $telData = new TelegramData();
+        $telData->data = json_encode($data);
+        $telData->path = 'fail-crypto';
+        $telData->save();
+    }
+
+    public function ramzinoSuccessCallback(Request $request)
+    {
+        $telData = new TelegramData();
+        $telData->data = json_encode($request->all());
+        $telData->path = 'success-crypto';
+        $telData->save();
     }
 
 

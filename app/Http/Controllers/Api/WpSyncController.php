@@ -79,4 +79,32 @@ class WpSyncController extends Controller
         }
         return response()->json(['ok' => true, 'bot_order_id' => $saved->id]);
     }
+
+
+    public function linkDisconnect(Request $request, WpSyncService $sync)
+    {
+        if ($g = $this->guard($request, $sync)) return $g;
+        $sync->disconnectLink($request->input('tel_id'), $request->input('phone'));
+        return response()->json(['ok' => true]);
+    }
+
+    public function adminStats(Request $request, WpSyncService $sync)
+    {
+        if ($g = $this->guard($request, $sync)) return $g;
+        return response()->json($sync->adminStats(
+            (string) $request->input('start'),
+            (string) $request->input('end'),
+            (string) $request->input('group', 'day')
+        ));
+    }
+
+    public function adminList(Request $request, WpSyncService $sync)
+    {
+        if ($g = $this->guard($request, $sync)) return $g;
+        return response()->json($sync->adminList(
+            (string) $request->input('type', 'orders'),
+            (int) $request->input('page', 1),
+            (string) $request->input('search', '')
+        ));
+    }
 }

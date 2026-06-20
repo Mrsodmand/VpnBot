@@ -549,9 +549,6 @@ class TelegramBotController extends Controller
             case "ipsvp":
                 return $this->ipsvp($type);
                 break;
-                case "connectAccount":
-                return $this->connectAccount($type);
-                break;
         }
 
 //        } catch (\Exception $exception) {
@@ -704,10 +701,6 @@ class TelegramBotController extends Controller
                 break;
             case 'adminPGSellChangePercentSubmit':
                 return $this->adminPGSellChangePercentSubmit();
-                break;
-            case 'connectAccount':
-                $data['code'] = $this->text;
-                return $this->connectAccount($data);
                 break;
         }
     }
@@ -1498,13 +1491,10 @@ class TelegramBotController extends Controller
     {
         $code = $data['code'] ?? null;
         if (!$code) {
-            $this->updatePath('connectAccount');
             $text = headTitle('اتصال حساب سایت به ربات');
-            $text .= "برای اتصال حساب، وارد پنل کاربری سایت شوید، از بخش اطلاعات کاربری کد اتصال بگیرید و بعد این دستور را داخل ربات ارسال کنید:\n";
-            $this->method = 'edit';
+            $text .= "برای اتصال حساب، وارد پنل کاربری سایت شوید، از بخش اطلاعات کاربری کد اتصال بگیرید و بعد این دستور را داخل ربات ارسال کنید:\n\n<code>/connectAccount 123456</code>";
             return $this->sendMessage([
                 'chat_id' => $this->chatId,
-                'message_id' => $this->messageId,
                 'text' => $text,
                 'parse_mode' => 'HTML',
             ], 'message');
@@ -1512,7 +1502,7 @@ class TelegramBotController extends Controller
 
         try {
             $sync = app(WpSyncService::class);
-            $result = $sync->confirmWordPressLink($this->user, (string)$code);
+            $result = $sync->confirmWordPressLink($this->user, (string) $code);
             if (empty($result['ok'])) {
                 return $this->sendMessage([
                     'chat_id' => $this->chatId,
@@ -2408,7 +2398,7 @@ class TelegramBotController extends Controller
             $buttons[] = [
                 [
                     'text' => 'پرداخت',
-                    'callback_data' => "{$ramzino['data']['url']}"
+                    'url' => "{$ramzino['data']['url']}"
                 ]
             ];
         }
@@ -4941,9 +4931,6 @@ $codeText
                     [
                         ['text' => '💰 موجودی', 'callback_data' => 'ignore'],
                         ['text' => "{$balance}", 'callback_data' => 'ignore'],
-                    ],
-                    [
-                        ['text' => 'اتصال حساب کاربری', 'callback_data' => 'type=connectAccount'],
                     ],
                     [
                         ['text' => '⬅️ برگشت', 'callback_data' => 'type=home'],
