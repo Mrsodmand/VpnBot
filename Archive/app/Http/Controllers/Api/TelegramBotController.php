@@ -23,7 +23,6 @@ use App\Models\Setting;
 use App\Models\TelegramData;
 use App\Models\User;
 use App\Services\Telegram;
-use App\Services\WpSyncService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -549,9 +548,6 @@ class TelegramBotController extends Controller
             case "ipsvp":
                 return $this->ipsvp($type);
                 break;
-                case "connectAccount":
-                return $this->connectAccount($type);
-                break;
         }
 
 //        } catch (\Exception $exception) {
@@ -574,12 +570,6 @@ class TelegramBotController extends Controller
         $telData->path = $this->text;
         $telData->save();
         $this->method = 'toUser';
-
-        if (str_starts_with($this->text, '/connectAccount')) {
-            $parts = preg_split('/\s+/', trim($this->text));
-            $code = $parts[1] ?? null;
-            return $this->connectAccount(['code' => $code]);
-        }
 
         $setting = Setting::where('key', 'channel-join')->first();
         if (!is_null($setting) && $setting->value == 1) {
@@ -704,10 +694,6 @@ class TelegramBotController extends Controller
                 break;
             case 'adminPGSellChangePercentSubmit':
                 return $this->adminPGSellChangePercentSubmit();
-                break;
-            case 'connectAccount':
-                $data['code'] = $this->text;
-                return $this->connectAccount($data);
                 break;
         }
     }
@@ -1492,61 +1478,6 @@ class TelegramBotController extends Controller
 
             'parse_mode' => 'HTML',
         ], 'message');
-    }
-
-    protected function connectAccount($data = [])
-    {
-        $code = $data['code'] ?? null;
-        if (!$code) {
-            $this->updatePath('connectAccount');
-            $text = headTitle('اتصال حساب سایت به ربات');
-            $text .= "برای اتصال حساب، وارد پنل کاربری سایت شوید، از بخش اطلاعات کاربری کد اتصال بگیرید و بعد این دستور را داخل ربات ارسال کنید:\n";
-            $this->method = 'edit';
-            return $this->sendMessage([
-                'chat_id' => $this->chatId,
-                'message_id' => $this->messageId,
-                'text' => $text,
-                'parse_mode' => 'HTML',
-            ], 'message');
-        }
-
-        try {
-            $sync = app(WpSyncService::class);
-            $result = $sync->confirmWordPressLink($this->user, (string)$code);
-            if (empty($result['ok'])) {
-                return $this->sendMessage([
-                    'chat_id' => $this->chatId,
-                    'text' => '❌ اتصال حساب انجام نشد: ' . ($result['message'] ?? 'کد نامعتبر است.'),
-                    'parse_mode' => 'HTML',
-                ], 'message');
-            }
-
-            $text = "✅ حساب سایت و ربات با موفقیت متصل شد.\n\n";
-            $text .= "📱 شماره سایت: <code>{$result['phone']}</code>\n";
-            $text .= "📦 سفارش های سایت وارد ربات شد: <code>{$result['orders_count']}</code> مورد\n\n";
-            $text .= "از این به بعد سفارش های سایت و ربات و کیف پول بین هر دو بخش قابل مدیریت است.";
-
-            return $this->sendMessage([
-                'chat_id' => $this->chatId,
-                'text' => $text,
-                'parse_mode' => 'HTML',
-                'reply_markup' => json_encode([
-                    'inline_keyboard' => [
-                        [
-                            ['text' => '📑 سفارشات من', 'callback_data' => 'type=clientOrders'],
-                            ['text' => '💰 کیف پول', 'callback_data' => 'type=addFund'],
-                        ],
-                    ],
-                ]),
-            ], 'message');
-        } catch (\Throwable $e) {
-            Log::error('connectAccount failed', ['message' => $e->getMessage(), 'tel_id' => $this->chatId]);
-            return $this->sendMessage([
-                'chat_id' => $this->chatId,
-                'text' => '❌ خطا در اتصال حساب. لطفا چند دقیقه بعد دوباره تلاش کنید.',
-                'parse_mode' => 'HTML',
-            ], 'message');
-        }
     }
 
     /**
@@ -4943,9 +4874,6 @@ $codeText
                         ['text' => "{$balance}", 'callback_data' => 'ignore'],
                     ],
                     [
-                        ['text' => 'اتصال حساب کاربری', 'callback_data' => 'type=connectAccount'],
-                    ],
-                    [
                         ['text' => '⬅️ برگشت', 'callback_data' => 'type=home'],
                     ]
                 ]
@@ -4954,8 +4882,6 @@ $codeText
         $this->method = 'edit';
         return $this->sendMessage($data, 'message');
     }
-
-
 
     /**
      * Client Area
