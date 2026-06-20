@@ -121,7 +121,6 @@ class JobController extends Controller
     {
 
     }
-
     public function ramzinoFailCallback(Request $request)
     {
         $data = $request->all();
