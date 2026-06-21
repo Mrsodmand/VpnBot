@@ -1,0 +1,57 @@
+<?php
+/*
+این Patch فقط برای زمانی است که داخل TelegramBotController هنوز متد connectAccount ندارید.
+
+1) بالای فایل، کنار use های دیگر اضافه کنید:
+use App\Services\WpSyncService;
+
+2) داخل NormalTextAction قبل از switch این شرط را اضافه کنید تا /connectAccount 123456 هم کار کند:
+if (str_starts_with($this->text, '/connectAccount')) {
+    return $this->connectAccount();
+}
+
+3) این متد را داخل کلاس TelegramBotController اضافه کنید:
+*/
+
+protected function connectAccount()
+{
+    $code = trim(str_replace('/connectAccount', '', (string) $this->text));
+
+    if ($code === '') {
+        $this->method = 'toUser';
+        return $this->sendMessage([
+            'chat_id' => $this->chatId,
+            'text' => "برای اتصال حساب سایت به ربات، وارد سایت شوید، از بخش حساب کاربری کد اتصال را بگیرید و اینجا ارسال کنید.\n\nنمونه:\n<code>/connectAccount 123456</code>",
+            'parse_mode' => 'HTML',
+        ], 'message');
+    }
+
+    try {
+        $sync = app(WpSyncService::class);
+        $result = $sync->confirmWordPressLink($this->user, $code);
+
+        if (empty($result['ok'])) {
+            $this->method = 'toUser';
+            return $this->sendMessage([
+                'chat_id' => $this->chatId,
+                'text' => '❌ اتصال حساب انجام نشد. ' . ($result['message'] ?? 'کد نامعتبر است.'),
+                'parse_mode' => 'HTML',
+            ], 'message');
+        }
+
+        $this->method = 'toUser';
+        return $this->sendMessage([
+            'chat_id' => $this->chatId,
+            'text' => "✅ اتصال حساب سایت و ربات با موفقیت انجام شد.\n\nشماره متصل شده: <code>{$result['phone']}</code>\nتعداد سفارش های منتقل شده از سایت: <code>{$result['orders_count']}</code>",
+            'parse_mode' => 'HTML',
+        ], 'message');
+    } catch (\Throwable $e) {
+        \Illuminate\Support\Facades\Log::error('connectAccount failed', ['message' => $e->getMessage()]);
+        $this->method = 'toUser';
+        return $this->sendMessage([
+            'chat_id' => $this->chatId,
+            'text' => '❌ خطا در اتصال حساب. لطفا بعدا دوباره تلاش کنید.',
+            'parse_mode' => 'HTML',
+        ], 'message');
+    }
+}
