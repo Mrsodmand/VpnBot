@@ -1,6 +1,6 @@
 <?php
 
-namespace App\lib;
+namespace App\Lib;
 
 use Illuminate\Support\Facades\Cache;
 

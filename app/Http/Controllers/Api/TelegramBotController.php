@@ -549,6 +549,9 @@ class TelegramBotController extends Controller
             case "ipsvp":
                 return $this->ipsvp($type);
                 break;
+            case "connectAccount":
+                return $this->connectAccount($type);
+                break;
         }
 
 //        } catch (\Exception $exception) {
@@ -3519,21 +3522,24 @@ $codeText
         $detail = is_array($order->detail)
             ? $order->detail
             : json_decode($order->detail, true);
+        $panel = Panels::find($order->panel_id);
 
         $buttons = [];
 
         $allowSellExtra = Setting::where('key', 'extra')->value('value') == 1;
 
-        $buttons[] = [
-            [
-                'text' => '✏️ تغییر نام',
-                'callback_data' => "type=clientChangeConfigName|id={$order->id}",
-            ],
-            [
-                'text' => '🔗 تغییر کد',
-                'callback_data' => "type=clientChangeConfigUid|id={$order->id}",
-            ],
-        ];
+        if($panel->system_type != 'pasarguard'){
+            $buttons[] = [
+                [
+                    'text' => '✏️ تغییر نام',
+                    'callback_data' => "type=clientChangeConfigName|id={$order->id}",
+                ],
+                [
+                    'text' => '🔗 تغییر کد',
+                    'callback_data' => "type=clientChangeConfigUid|id={$order->id}",
+                ],
+            ];
+        }
 
 
         if ($allowSellExtra) {
@@ -3580,7 +3586,6 @@ $codeText
 
         ];
 
-        $panel = Panels::find($order->panel_id);
 
         if (is_null($panel)) {
             return $this->telegramSdk->sendMessage([
@@ -4932,6 +4937,9 @@ $codeText
                         ['text' => '💰 موجودی', 'callback_data' => 'ignore'],
                         ['text' => "{$balance}", 'callback_data' => 'ignore'],
                     ],
+                    [
+                        ['text' => 'اتصال حساب', 'callback_data' => 'type=connectAccount'],
+                    ] ,
                     [
                         ['text' => '⬅️ برگشت', 'callback_data' => 'type=home'],
                     ]

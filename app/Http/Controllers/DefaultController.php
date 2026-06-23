@@ -11,7 +11,6 @@ use App\Models\Setting;
 use App\Models\User;
 use App\Services\Telegram;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\DB;
 
 class DefaultController extends Controller
 {
@@ -302,32 +301,20 @@ class DefaultController extends Controller
 
     public function importUsers()
     {
-        $users = DB::table('customer')
-            ->whereNot('tel_id')
-            ->where('import', 0)
-            ->get();
+        $username = '';
+        $password = '';
+        $path = '';
+        $url = 'https://38.180.81.220';
+        $session = null;
 
-        foreach ($users as $user) {
-            $newUser = User::where('tel_id', $user->tel_id)->first();
-            if (is_null($newUser)) {
-                $newUser = new User();
-                $newUser->first_name = $user->f_name;
-                $newUser->last_name = $user->l_name;
-                $newUser->tel_id = $user->tel_id;
-                $newUser->balance = $user->wallet;
-                $newUser->parent = $user->parent ?? 0;
-                $newUser->status = 1;
-                $newUser->path = 'start';
-                $newUser->save();
+        $loginData = [
+            'username' => $username,
+            'password' => $password,
+            'url' => $url . $path,
+        ];
 
-            } else {
-                $newUser->balance = $user->wallet + $newUser->balance;
-                $newUser->save();
-            }
-            DB::table('customer')
-                ->where('id', $user->id)
-                ->update(['import' => 1]);
-        }
+        $session = loginToSanaie($loginData)['sessionCookie'];
+        dd($session);
     }
 
 }
