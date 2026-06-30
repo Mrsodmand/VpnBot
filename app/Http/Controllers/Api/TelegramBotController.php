@@ -7169,10 +7169,7 @@ $codeText
         $id = $type['id'];
 
         $panel = Panels::find($id);
-
-
         if ($panel->system_type == "pasarguard") {
-
             $data = [
                 'url' => $panel->url,
                 'username' => $panel->username,
@@ -7183,9 +7180,8 @@ $codeText
             $pasarGuard = new PasarGuard($data);
             $result = $pasarGuard->checkConnection();
             if (!is_null($result) && $result != false) {
-                $Data = [
-                    'Domain' => $result,
-                ];
+                $Data = $panel->detail;
+                $Data['Domain'] = $result;
                 $panel->detail = $Data;
                 $panel->save();
                 $data = [
@@ -7226,7 +7222,6 @@ $codeText
             }
 
         }
-
         return $this->telegramSdk->answerCallback($data);
     }
 

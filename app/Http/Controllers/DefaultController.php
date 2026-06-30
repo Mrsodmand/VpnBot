@@ -383,57 +383,58 @@ class DefaultController extends Controller
 
     public function importUsers()
     {
-//        $serverName = 'de-4';
-//        $serverName = 'de-3';
-//        $serverName = 'de-6';
-//        $serverName = 'de-5';
-//        $serverName = 'us-1';
-//        $serverName = 'nl-1';
-//        $serverName = 'fr-1';
-//        $serverName = 'it-1';
-//        $serverName = 'pl-1';
-        $serverName = 'tr-1';
+        $backups = [
+            'ch1', 'de2', 'de3', 'de4', 'de5', 'de6', 'fi1', 'fr1', 'it1', 'nl1', 'pl1', 'uk2', 'us1', 'tr1', 'ae2'
+        ];
+        set_time_limit(999999999);
+        foreach ($backups as $serverName) {
+            $filePath = base_path("oldData/$serverName.json");
+            $json = file_get_contents($filePath);
+            $oldClients = json_decode($json, true);
+            foreach ($oldClients as $old) {
+                try {
+                    $modal = ConvertedGb::where('uid', $old['email'])->first();
+                    if (is_null($modal)) {
 
-        $filePath = base_path("oldData/$serverName.json");
+                        $ip = DB::table('ip')
+                            ->where('remark', $old['email'])
+                            ->first();
 
-        $json = file_get_contents($filePath);
-        $oldClients = json_decode($json, true);
-        foreach ($oldClients as $old) {
-            try {
-                $modal = ConvertedGb::where('uid', $old['email'])->first();
-                if (is_null($modal)) {
+                        if (!is_null($ip)) {
+                            $user = DB::table('customer')
+                                ->where('id', $ip->customer_id)
+                                ->first();
 
-                    $ip = DB::table('ip')
-                        ->where('remark', $old['email'])
-                        ->first();
+                            $usedData = $old['down'] + $old['up'];
+                            $total = byteToGb($old['total'] - $usedData);
 
-                   if (!is_null($ip)){
-                       $user = DB::table('customer')
-                           ->where('id', $ip->customer_id)
-                           ->first();
+                            if ($total > 0) {
+                                $modal = new ConvertedGb();
+                                $modal->uid = $old['email'];
+                                $modal->tel_id = !is_null($user->tel_id) ? $user->tel_id : "";
+                                $modal->mobile = !is_null($user->mobile) ? $user->mobile : "";
+                                $modal->order_id = $ip->order_id;
+                                $modal->server = $serverName;
+                                $modal->gb = $total;
+                                $modal->save();
+                            }
+                        }
 
-                       $usedData = $old['down'] + $old['up'];
-                       $total = byteToGb($old['total'] - $usedData);
-
-                       if ($total > 0) {
-                           $modal = new ConvertedGb();
-                           $modal->uid = $old['email'];
-                           $modal->tel_id = !is_null($user->tel_id) ? $user->tel_id : "";
-                           $modal->mobile = !is_null($user->mobile) ? $user->mobile : "";
-                           $modal->order_id = $ip->order_id;
-                           $modal->server = $serverName;
-                           $modal->gb = $total;
-                           $modal->save();
-                       }
-                   }
-
+                    }
+                } catch (\Exception $exception) {
+                    dd($old, $user, $ip, $exception->getMessage());
                 }
-            } catch (\Exception $exception) {
-                dd($old,$user,          $ip              , $exception->getMessage());
             }
+            $totalGb[] =[
+                'Server' => $serverName,
+                'Bw' =>  ConvertedGb::where('server', $serverName)->sum('gb') .' GB',
+                'price' => number_format(5000* ConvertedGb::where('server', $serverName)->sum('gb')),
+            ];
+
         }
-        $totalGb = ConvertedGb::where('server', $serverName)->sum('gb');
+
         dd($totalGb);
+
     }
 
 
