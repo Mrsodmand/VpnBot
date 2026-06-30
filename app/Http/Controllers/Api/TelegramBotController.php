@@ -1124,7 +1124,7 @@ class TelegramBotController extends Controller
 
         if ($convertedGb > 0) {
             $buttons[] = [
-                ['text' => "👤 موجودی های قدیم", 'callback_data' => 'type=convertedGb'],
+                ['text' => "🔄 انتقال سرویس های قدیمی", 'callback_data' => 'type=convertedGb'],
             ];
         }
 
