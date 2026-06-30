@@ -1176,8 +1176,13 @@ class TelegramBotController extends Controller
         }
         $convertedGb = round($convertedGb);
         $rial = number_format($convertedGb * 5000);
-        $text = "موجودی قبلی شما \n\n";
-        $text .= "موجودی ریالی: $rial تومان \n\n ";
+        $text = "🔁 انتقال موجودی سرویس‌های قبلی
+
+کاربر عزیز، معادل ریالی حجم باقی‌مانده کانفیگ‌های فعال شما از ربات قبلی محاسبه و به این بخش منتقل شده است.
+با استفاده از دکمه‌های زیر می‌توانید موجودی خود را به سرویس‌های جدید تبدیل کنید و از کانفیگ جدید با دسترسی به همه کشورها استفاده کنید.
+⏳ مدت زمان سرویس بر اساس پکیج‌های جدید و مبلغ موجودی شما محاسبه می‌شود. \n\n";
+        $text .= "معادل ریالی حجم های قبلی شما \n";
+        $text .= "موجودی ریالی: $rial تومان \n";
 
         $days = match (true) {
             $convertedGb <= 100 => 30,
@@ -1187,7 +1192,7 @@ class TelegramBotController extends Controller
 
         $text .= "مدت اعتبار: $days روز\n\n ";
 
-        $buttons[][] = ['text' => "همه کشور ها", 'callback_data' => "type=convertGbFinalStep|bw={$convertedGb}|days={$days}"];
+        $buttons[][] = ['text' => "تبدیل به سرویس جدید 🌍", 'callback_data' => "type=convertGbFinalStep|bw={$convertedGb}|days={$days}"];
 //        $buttons[][] = ['text' => "کشور خاص", 'callback_data' => 'type=convertGbStepTwo|method=single'];
         $buttons[][] = ['text' => "برگشت", 'callback_data' => 'type=home',];
 
