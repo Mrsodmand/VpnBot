@@ -7,6 +7,7 @@ use App\Lib\Jdf;
 use App\Lib\PasarGuard;
 use App\Lib\Ramizno;
 use App\Models\Carts;
+use App\Models\ConvertedGb;
 use App\Models\Countries;
 use App\Models\ExtraBandwidth;
 use App\Models\Inbounds;
@@ -175,6 +176,21 @@ class TelegramBotController extends Controller
             // all access
             case 'home':
                 return $this->home($type);
+                break;
+            case 'convertedGb':
+                return $this->convertedGb($type);
+                break;
+            case 'convertGbStepTwo':
+                return $this->convertGbStepTwo($type);
+                break;
+            case 'convertGbClientService':
+                return $this->convertGbClientService($type);
+                break;
+            case 'convertGbClientSelectCountry':
+                return $this->convertGbClientSelectCountry($type);
+                break;
+            case 'convertGbFinalStep':
+                return $this->convertGbFinalStep($type);
                 break;
             case 'checkUserIsJoined':
                 return $this->checkUserIsJoined($type);
@@ -1081,7 +1097,7 @@ class TelegramBotController extends Controller
         $user = $this->user;
         $homePage = Setting::where('key', 'home-page')->first();
         $supportId = Setting::where('key', 'support_id')->first();
-
+        $convertedGb = ConvertedGb::where('tel_id', $this->chatId)->sum('gb');
         $buttons[][] = ['text' => "📦 خرید سرویس", 'callback_data' => 'type=clientService', 'style' => 'success'];
         $buttons[] = [
             ['text' => "📑 سفارشات من", 'callback_data' => 'type=clientOrders'],
@@ -1103,6 +1119,12 @@ class TelegramBotController extends Controller
         } else {
             $buttons[] = [
                 ['text' => "👤 حساب کاربری", 'callback_data' => 'type=profile'],
+            ];
+        }
+
+        if ($convertedGb > 0) {
+            $buttons[] = [
+                ['text' => "👤 موجودی های قدیم", 'callback_data' => 'type=convertedGb'],
             ];
         }
 
@@ -1145,6 +1167,350 @@ class TelegramBotController extends Controller
         ];
         return $this->sendMessage($data, 'message');
     }
+
+    protected function convertedGb($type)
+    {
+        $convertedGb = ConvertedGb::where('tel_id', $this->chatId)->sum('gb');
+        if ($convertedGb < 0) {
+            $this->sendTemporaryMessage('شما مجاز به مشاهده این منو نیستید.');
+        }
+        $convertedGb = round($convertedGb);
+        $rial = number_format($convertedGb * 5000);
+        $text = "موجودی قبلی شما \n\n";
+        $text .= "موجودی ریالی: $rial تومان \n\n ";
+
+        $days = match (true) {
+            $convertedGb <= 100 => 30,
+            $convertedGb <= 200 => 60,
+            default => 90,
+        };
+
+        $text .= "مدت اعتبار: $days روز\n\n ";
+
+        $buttons[][] = ['text' => "همه کشور ها", 'callback_data' => "type=convertGbFinalStep|bw={$convertedGb}|days={$days}"];
+//        $buttons[][] = ['text' => "کشور خاص", 'callback_data' => 'type=convertGbStepTwo|method=single'];
+        $buttons[][] = ['text' => "برگشت", 'callback_data' => 'type=home',];
+
+        $data = [
+            'chat_id' => $this->chatId,
+            'text' => $text,
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => $buttons
+            ])
+        ];
+        return $this->sendMessage($data, 'message');
+    }
+
+    protected function convertGbStepTwo($data)
+    {
+        $item = $data['method'];
+        return $this->convertGbClientService(['page' => 1, 'item' => $item]);
+    }
+
+    protected function convertGbClientService($type)
+    {
+        $page = $type['page'] ?? 1;
+        $item = $type['item'] ?? 'single';
+
+        $setting = Setting::where('key', 'channel-join')->first();
+        if (!is_null($setting) && $setting->value == 1) {
+            $this->ifUserIsJoined();
+            if (!$this->isJoined) {
+                return $this->joinFirst();
+            }
+        }
+
+        $plan = Plans::where('type', '!=', null)->where('status', 1)->pluck('type')->toArray();
+        $panel = Panels::where('panel_type', '!=', null)->where('status', 1)->pluck('type')->toArray();
+
+        $serviceId = array_values(array_unique(array_merge(
+            $plan,
+            $panel
+        )));
+
+        $list = Service::orderByDesc('id')
+            ->wherein('id', $serviceId)
+            ->paginate(10, ['*'], 'page', $page);
+
+        $text = headTitle("انتخاب سرویس ");
+        $text .= "💡 لطفاً یکی از سرویس زیر را انتخاب کنید:";
+
+        $keyboard = [];
+        $row = [];
+
+        foreach ($list as $country) {
+            $name = !is_null($country->name) ? $country->name : 'بدون نام';
+            $row[] = [
+                'text' => "{$name}",
+                'callback_data' => "type=convertGbClientSelectCountry|s_id={$country->id}|method={$item}",
+            ];
+            if (count($row) === 2) {
+                $keyboard[] = $row;
+                $row = [];
+            }
+        }
+
+        if (!empty($row)) {
+            $keyboard[] = $row;
+        }
+
+        $pagination = $this->paginationFooterButton($list, $page, 'convertedGb');
+        if (!is_null($pagination)) {
+            $keyboard[] = $pagination;
+        }
+
+        $keyboard[] = $this->clientFooterButtons("type=convertedGb");
+
+        $data = [
+            'chat_id' => $this->chatId,
+            'text' => trim($text),
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => $keyboard
+            ]),
+        ];
+
+        return $this->sendMessage($data, 'message');
+    }
+
+    protected function convertGbClientSelectCountry($type)
+    {
+        $service_id = $type['s_id'];
+        $page = $type['page'] ?? 1;
+        $item = $type['method'] ?? 1;
+
+        $user = $this->user;
+        $telDetail = $user->tel_detail;
+        $telDetail['order-pasarguard-id'] = 0;
+        $user->tel_detail = $telDetail;
+        $user->save();
+
+        $service = Service::find($service_id);
+        if (is_null($service)) {
+            return $this->sendTemporaryMessage('سرویس مورد نظر یافت نشد');
+        }
+        $panelIds = Panels::where('status', 1)
+            ->where('panel_type', $service_id)
+            ->pluck('id')
+            ->toArray();
+
+        $inboundCountryIds = Inbounds::whereIn('panel_id', $panelIds)
+            ->whereNotNull('country_id')
+            ->distinct()
+            ->pluck('country_id')
+            ->toArray();
+
+        $panelCountryIds = Panels::where('status', 1)
+            ->where('panel_type', $service_id)
+            ->whereNotNull('country_id')
+            ->distinct()
+            ->pluck('country_id')
+            ->toArray();
+
+        $planCountryIds = array_values(array_unique(array_merge(
+            $panelCountryIds,
+            $inboundCountryIds
+        )));
+
+        $pasarguard = Panels::where('status', 1)
+            ->where('panel_type', $service_id)
+            ->where('system_type', 'pasarguard')
+            ->where('status', 1)
+            ->first();
+
+        $list = Countries::where('type', $service_id)
+            ->where('type', $service_id)
+            ->whereIn('id', $planCountryIds)
+            ->paginate(10);
+
+
+        $text = headTitle("🌍انتخاب کشور ");
+        $text .= "📦 <b>نوع سرویس:</b>
+<code>{$service->name}</code>
+
+💡 لطفاً یکی از کشور زیر را انتخاب کنید:
+";
+
+
+        $keyboard = [];
+        $row = [];
+
+        if ($item == 'all') {
+            $pasarguardDetail = $pasarguard->detail;
+            if (array_key_exists('status', $pasarguardDetail) && $pasarguardDetail['status'] == 1) {
+                $keyboard[][] = [
+                    'text' => "🌍 همه کشور ها",
+                    'callback_data' => "type=convertGbFinalStep|s_id={$service->id}|co_id=0|p_id={$pasarguard->id}",
+                ];
+            }
+            $text .= "
+گزینه همه کشورها:
+با انتخاب این نوع سفارش شما دسترسی برای اتصال با تمام کشور ها رو بصورت لینک ساب اسکریپشن دارید.";
+        } else {
+            if (count($list) > 0) {
+                foreach ($list as $country) {
+                    $name = !is_null($country->name) ? $country->name : 'بدون نام';
+                    $row[] = [
+                        'text' => "{$name}",
+                        'callback_data' => "type=clientSelectPlan|s_id={$service->id}|co_id={$country->id}",
+                    ];
+                    if (count($row) === 2) {
+                        $keyboard[] = $row;
+                        $row = [];
+                    }
+                }
+                if (!empty($row)) {
+                    $keyboard[] = $row;
+                }
+            }
+        }
+
+
+        $pagination = $this->paginationFooterButton($list, $page, "convertGbClientSelectCountry|si_id=$service_id");
+
+        if (!is_null($pagination)) {
+            $keyboard[] = $pagination;
+        }
+
+        $keyboard[] = $this->clientFooterButtons("type=convertGbClientService");
+        $data = [
+            'chat_id' => $this->chatId,
+            'text' => trim($text),
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => $keyboard
+            ]),
+        ];
+        return $this->sendMessage($data, 'message');
+    }
+
+    protected function convertGbFinalStep($data)
+    {
+        $convertedGb = ConvertedGb::where('tel_id', $this->chatId)->sum('gb');
+        if ($convertedGb < 0) {
+            $this->sendTemporaryMessage('شما مجاز به مشاهده این منو نیستید.');
+        }
+        ConvertedGb::where('tel_id', (string)$this->chatId)->delete();
+
+        $oldPrice = 5000;
+        $price = 10000 * 1.7;
+        $inboundId = 13;
+        $targetUser = $this->user;
+        $bw = (int)$data['bw'];
+        $days = (int)$data['days'];
+
+        $buttons[][] = ['text' => "برگشت", 'callback_data' => 'type=home',];
+        $data = [
+            'chat_id' => $this->chatId,
+            'text' => "درحال ساخت کانفیگ لطفا صبور باشید",
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => $buttons
+            ])
+        ];
+        $this->sendMessage($data, 'message');
+
+        $bandwidth = round(($bw * $oldPrice) / $price) + 1;
+
+        $inbound = Inbounds::find($inboundId);
+        $panel = Panels::find($inbound->panel_id);
+
+        $pasarGuard = new PasarGuard([
+            'url' => $panel->url,
+            'username' => $panel->username,
+            'password' => $panel->password,
+            'id' => $panel->id,
+        ]);
+
+        if (!$pasarGuard->checkConnection()) {
+            return [
+                'status' => false,
+                'message' => $pasarGuard->getLoginStatus()['message'],
+            ];
+        }
+
+        $remarkBase = "{$targetUser->tel_id}";
+
+        $remark = $remarkBase . '-' . rand(1111, 9999);
+
+        $result = $pasarGuard->createUserAndGetConfig([
+            'username' => $remark,
+            'group_id' => [$inbound->inbound_id],
+            'days' => (int)$days,
+            'total_gb' => $bandwidth,
+            'client_type' => 'links',
+            'note' => 'Created from Telegram bot',
+            'status' => "on_hold",
+            "on_hold_timeout" => 0,
+            'on_hold_expire_duration' => (int)$days * 24 * 60 * 60,
+            'auto_delete_in_days' => 7
+        ]);
+
+
+        if (!$result['status']) {
+            return $result;
+        }
+
+        $config = $result['config'];
+
+        $Order = Orders::create([
+            'user_id' => $targetUser->id,
+            'remark' => $remark,
+            'uid' => $result['user']['id'],
+            'sub_id' => $result['user']['subscription_url'],
+            'plan' => 0,
+            'panel_id' => $panel->id,
+            'inbound_id' => 0,
+            'system_type' => 'pasarguard',
+            'expire_at' => Carbon::now()->addDays((int)$days)->format('Y-m-d H:i:s'),
+            'status' => 1,
+            'detail' => [
+                'code' => $config,
+            ],
+        ]);
+
+        $orders[] = [
+            'order-id' => $Order->id,
+            'code' => $config,
+            'sub' => "{$panel->sub_address}{$Order->sub_id}",
+            'remark' => $Order->remark,
+        ];
+
+        foreach ($orders as $singleOrder) {
+            $code = $singleOrder['sub'];
+            $codeText = "";
+
+            $photo = "https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=" . urlencode($code);
+            $this->telegramSdk->sendPhoto([
+                'chat_id' => $targetUser->tel_id,
+                'photo' => $photo,
+                'caption' => "
+<b>✅ سفارش با موفقیت تکمیل شد</b>
+
+🧾 شماره سفارش:
+<code>{$singleOrder['order-id']}</code>
+$codeText
+🔗 لینک ساب:
+<code>{$singleOrder['sub']}</code>
+",
+                'parse_mode' => 'HTML',
+                'reply_markup' => json_encode([
+                    'inline_keyboard' => [
+                        [
+                            [
+                                'text' => '📄 جزئیات سفارش',
+                                'callback_data' => "type=clientSingleOrder|id={$singleOrder['order-id']}",
+                            ]
+                        ]
+                    ]
+                ]),
+            ]);
+        }
+
+
+    }
+
 
     protected function addFund($data)
     {
@@ -1505,7 +1871,7 @@ class TelegramBotController extends Controller
 
         try {
             $sync = app(WpSyncService::class);
-            $result = $sync->confirmWordPressLink($this->user, (string) $code);
+            $result = $sync->confirmWordPressLink($this->user, (string)$code);
             if (empty($result['ok'])) {
                 return $this->sendMessage([
                     'chat_id' => $this->chatId,
@@ -3528,7 +3894,7 @@ $codeText
 
         $allowSellExtra = Setting::where('key', 'extra')->value('value') == 1;
 
-        if($panel->system_type != 'pasarguard'){
+        if ($panel->system_type != 'pasarguard') {
             $buttons[] = [
                 [
                     'text' => '✏️ تغییر نام',
@@ -3633,7 +3999,6 @@ $codeText
          * اگر متن طولانی شد، اول QR را می فرستیم، بعد متن کامل را با sendMessage ارسال می کنیم.
          */
         $photo = "https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=" . urlencode($code);
-
         if (mb_strlen(strip_tags($message), 'UTF-8') <= 900) {
             return $this->telegramSdk->sendPhoto([
                 'chat_id' => $user->tel_id,
@@ -3645,7 +4010,6 @@ $codeText
                 ]),
             ]);
         }
-
         return $this->telegramSdk->sendPhoto([
             'chat_id' => $user->tel_id,
             'photo' => $photo,
@@ -3889,8 +4253,6 @@ $codeText
                 $pasarguardDetail = $panel->detail;
                 $pasarguardPercent = $pasarguardDetail['percent'];
             }
-
-
             foreach ($plans as $item) {
 
                 if ($pasarguardPercent != 0) {
@@ -4939,7 +5301,7 @@ $codeText
                     ],
                     [
                         ['text' => 'اتصال حساب', 'callback_data' => 'type=connectAccount'],
-                    ] ,
+                    ],
                     [
                         ['text' => '⬅️ برگشت', 'callback_data' => 'type=home'],
                     ]
@@ -6820,8 +7182,7 @@ $codeText
 
             $pasarGuard = new PasarGuard($data);
             $result = $pasarGuard->checkConnection();
-
-            if (!is_null($result)) {
+            if (!is_null($result) && $result != false) {
                 $Data = [
                     'Domain' => $result,
                 ];

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\lib\PasarGuard;
+use App\Models\ConvertedGb;
 use App\Models\Inbounds;
 use App\Models\Orders;
 use App\Models\Panels;
@@ -11,6 +12,7 @@ use App\Models\Setting;
 use App\Models\User;
 use App\Services\Telegram;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class DefaultController extends Controller
 {
@@ -299,22 +301,140 @@ class DefaultController extends Controller
         ]);
     }
 
+//    public function importUsers()
+//    {
+//        set_time_limit(999999999);
+//        $username = 'admin';
+//        $password = 'admin';
+//        $path = ':6969/XdHAetp';
+//        $serverName = 'de-4';
+//        $inboundId = 2;
+//        $url = 'http://38.180.81.220';
+//
+//        $data = [
+//            'username' => $username,
+//            'password' => $password,
+//            'url' => $url . $path,
+//        ];
+//
+//        $session = loginToSanaie($data)['session'];
+//
+//        $data['session'] = $session;
+//        $data['id'] = $inboundId;
+//        $inbounds = getInbound($data);
+//
+//        $clients = json_decode($inbounds['inbounds']['settings'], true);
+//        $carbon = Carbon::parse('2026-02-28', 'UTC');
+//        $warTime = $carbon->timestamp * 1000;
+//
+//        $oldClients = [];
+//
+//        foreach ($clients['clients'] as $item) {
+//            if (!empty($item['expiryTime']) && $item['expiryTime'] > $warTime) {
+//                $oldClients[] = [
+//                    'uid' => $item['id'],
+//                ];
+//            }
+//        }
+//
+//        foreach ($oldClients as $old) {
+//
+//            try {
+//                $modal = ConvertedGb::where('uid', $old['uid'])->first();
+//                if (is_null($modal)) {
+//                    $oldData = [
+//                        'serverUrl' => $url . $path,
+//                        'sessionCookie' => $session,
+//                        'uuid' => $old['uid']
+//                    ];
+//                    $used = getClient($oldData);
+//
+//                    if ($used['success']) {
+//
+//                        $ip = DB::table('ip')
+//                            ->where('u_id', $old['uid'])
+//                            ->first();
+//                        $user = DB::table('customer')
+//                            ->where('id', $ip->customer_id)
+//                            ->first();
+//
+//                        $usedData = $used['obj'][0];
+//                        $total = byteToGb($usedData['total'] - $usedData['allTime']);
+//
+//                        if ($total > 0) {
+//                            $modal = new ConvertedGb();
+//                            $modal->uid = $old['uid'];
+//                            $modal->tel_id = !is_null($user->tel_id) ? $user->tel_id : "";
+//                            $modal->mobile = !is_null($user->mobile) ? $user->mobile : "";
+//                            $modal->order_id = $ip->order_id;
+//                            $modal->server = $serverName;
+//                            $modal->gb = $total;
+//                            $modal->save();
+//                        }
+//                    }
+//                }
+//            } catch (\Exception $exception) {
+//                dd($user, $modal, $ip, $exception->getMessage(), $used);
+//            }
+//        }
+//        $totalGb = ConvertedGb::where('server', $serverName)->sum('gb');
+//        dd($totalGb);
+//    }
+
     public function importUsers()
     {
-        $username = '';
-        $password = '';
-        $path = '';
-        $url = 'https://38.180.81.220';
-        $session = null;
+//        $serverName = 'de-4';
+//        $serverName = 'de-3';
+//        $serverName = 'de-6';
+//        $serverName = 'de-5';
+//        $serverName = 'us-1';
+//        $serverName = 'nl-1';
+//        $serverName = 'fr-1';
+//        $serverName = 'it-1';
+//        $serverName = 'pl-1';
+        $serverName = 'tr-1';
 
-        $loginData = [
-            'username' => $username,
-            'password' => $password,
-            'url' => $url . $path,
-        ];
+        $filePath = base_path("oldData/$serverName.json");
 
-        $session = loginToSanaie($loginData)['sessionCookie'];
-        dd($session);
+        $json = file_get_contents($filePath);
+        $oldClients = json_decode($json, true);
+        foreach ($oldClients as $old) {
+            try {
+                $modal = ConvertedGb::where('uid', $old['email'])->first();
+                if (is_null($modal)) {
+
+                    $ip = DB::table('ip')
+                        ->where('remark', $old['email'])
+                        ->first();
+
+                   if (!is_null($ip)){
+                       $user = DB::table('customer')
+                           ->where('id', $ip->customer_id)
+                           ->first();
+
+                       $usedData = $old['down'] + $old['up'];
+                       $total = byteToGb($old['total'] - $usedData);
+
+                       if ($total > 0) {
+                           $modal = new ConvertedGb();
+                           $modal->uid = $old['email'];
+                           $modal->tel_id = !is_null($user->tel_id) ? $user->tel_id : "";
+                           $modal->mobile = !is_null($user->mobile) ? $user->mobile : "";
+                           $modal->order_id = $ip->order_id;
+                           $modal->server = $serverName;
+                           $modal->gb = $total;
+                           $modal->save();
+                       }
+                   }
+
+                }
+            } catch (\Exception $exception) {
+                dd($old,$user,          $ip              , $exception->getMessage());
+            }
+        }
+        $totalGb = ConvertedGb::where('server', $serverName)->sum('gb');
+        dd($totalGb);
     }
+
 
 }

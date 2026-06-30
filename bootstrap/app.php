@@ -1,8 +1,10 @@
 <?php
 
+use App\Models\TelegramData;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Request;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -15,5 +17,28 @@ return Application::configure(basePath: dirname(__DIR__))
         //
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
-    })->create();
+
+        $exceptions->render(function (Throwable $e, Request $request) {
+
+            if ($request->is('api/telegram-webhook')) {
+
+
+                $message = $request->all();
+
+                $message['error'] = $e->getMessage();
+                $message['line'] = $e->getLine();
+                $message['file'] = $e->getFile();
+
+                $telData = new TelegramData();
+                $telData->data = json_encode($message, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                $telData->path = 'error';
+                $telData->save();
+
+                return response()->json(['ok' => true], 200);
+            }
+
+            return null;
+        });
+
+    })
+    ->create();
