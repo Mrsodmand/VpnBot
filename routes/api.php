@@ -12,6 +12,7 @@ Route::get('setWebhook', [DefaultController::class, 'setWebhook']);
 Route::get('deleteWebhook', [DefaultController::class, 'deleteWebhook']);
 Route::get('export', [DefaultController::class, 'exportData']);
 Route::get('send-bulk-message', [JobController::class, 'sendBulkMessage']);
+Route::get('check-user-bw', [JobController::class, 'checkUserBw']);
 Route::get('importUsers', [DefaultController::class, 'importUsers']);
 
 Route::prefix('wp-sync')->group(function () {

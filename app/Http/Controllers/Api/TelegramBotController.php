@@ -4478,6 +4478,7 @@ $codeText
                 $order->expire_at = $expire;
                 $order->status = 1;
                 $order->reminded = 0;
+                $order->bw_reminded = 0;
                 $order->save();
 
                 $caption = "تمدید سرویس با موفقیت انجام شد.";
@@ -4637,6 +4638,7 @@ $codeText
                 $order->expire_at = $expire;
                 $order->status = 1;
                 $order->reminded = 0;
+                $order->bw_reminded = 0;
                 $order->save();
 
                 $caption = "تمدید سرویس با موفقیت انجام شد.";

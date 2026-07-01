@@ -31,5 +31,7 @@ class Orders extends Model
         'detail',
         'system_type',
         'expire_at',
+        'bw_reminded',
+        'reminded',
     ];
 }
