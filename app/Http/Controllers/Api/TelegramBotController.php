@@ -3171,7 +3171,6 @@ $codeText
         $id = $type['id'];
         $user = $this->user;
         $payment = Payment::find($id);
-
         if (is_null($payment)) {
             return $this->sendTemporaryMessage('تراکنش یافت نشد');
         }
@@ -3188,7 +3187,7 @@ $codeText
 
         if ($payment->status == 0) {
             $user->decrement('balance', $payment->price);
-            $payment->status = 1;
+//            $payment->status = 1;
             $payment->method = 'wallet';
             $payment->save();
             return $this->finalPaymentStep($payment);
@@ -3335,12 +3334,13 @@ $codeText
         $plan = $data['plan'];
 
         if ($panel->system_type == 'pasarguard') {
+
             if (array_key_exists('pasarguard-id', $orderDetail) && $orderDetail['pasarguard-id'] != 0) {
                 $activeGroup = Inbounds::where('panel_id', $panel->id)
-                    ->where('status', 1)
+                    ->wherein('inbound_id', [16])
                     ->pluck('inbound_id')
                     ->toArray();
-                $inboundId = 0;
+                $inboundId = $activeGroup[0];
             } else {
                 $activeGroup = Inbounds::where('panel_id', $panel->id)
                     ->where('country_id', $orderDetail['country-id'])
@@ -4254,7 +4254,7 @@ $codeText
 
         if (count($plans) > 0) {
             $pasarguardPercent = 0;
-            if ($order->inbound_id == 0) {
+            if ($order->inbound_id == 16) {
                 $pasarguardDetail = $panel->detail;
                 $pasarguardPercent = $pasarguardDetail['percent'];
             }
@@ -4313,7 +4313,7 @@ $codeText
         $panel = Panels::find($order->panel_id);
 
         $pasarguardPercent = 0;
-        if ($order->inbound_id == 0) {
+        if ($order->inbound_id == 16) {
             $pasarguardDetail = $panel->detail;
             $pasarguardPercent = $pasarguardDetail['percent'];
         }
@@ -4782,7 +4782,7 @@ $codeText
         if (count($list) > 0) {
 
             $pasarguardPercent = 0;
-            if ($order->inbound_id == 0) {
+            if ($order->inbound_id == 16) {
                 $pasarguardDetail = $panel->detail;
                 $pasarguardPercent = $pasarguardDetail['percent'];
             }
@@ -4848,7 +4848,7 @@ $codeText
         $perGbPrice = $service->price_per_gb;
 
         $pasarguardPercent = 0;
-        if ($order->inbound_id == 0) {
+        if ($order->inbound_id == 16) {
             $pasarguardDetail = $panel->detail;
             $pasarguardPercent = $pasarguardDetail['percent'];
         }
@@ -7262,8 +7262,7 @@ $codeText
 
             $data = [
                 'callback_query_id' => $this->callbackId,
-                'text' => "✅ گروه ها با موفقیت دریافت شدند.
-گروه های دریافت شده: $newInbound",
+                'text' => "✅ گروه ها با موفقیت دریافت شدند.",
                 'show_alert' => true,
                 'cache_time' => 1,
             ];
