@@ -11490,6 +11490,10 @@ $codeText
                 'parse_mode' => 'HTML',
             ]);
         }
+        $user = $this->user;
+        if ($user->is_admin == 0){
+            return $this->clientSingleOrder(['id' => $data['id']]);
+        }
 
         $order = Orders::where('id', $id)
             ->first();
