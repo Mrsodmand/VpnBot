@@ -14,6 +14,7 @@ use App\Models\Setting;
 use App\Models\TelegramData;
 use App\Models\User;
 use App\Services\Telegram;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 
 class JobController extends Controller
@@ -158,11 +159,10 @@ class JobController extends Controller
 
     private function sendLowVolumeMessage($order, array $pgUser, float $remainingMb, int $gb): void
     {
-        $telegramBotToken = env('TELEGRAM_BOT_TOKEN');
 
         $chatId = User::where('id', $order->user_id)->first()->tel_id;
 
-        if (empty($telegramBotToken) || empty($chatId)) {
+        if (empty($chatId)) {
             return;
         }
         $username = $pgUser['username'] ?? $order->uid;
@@ -191,16 +191,160 @@ class JobController extends Controller
 
     }
 
-
     public function remindToRenewOrder()
     {
+        $setting = Setting::where('key', 'alert-time')->first();
 
+        $day = !is_null($setting) ? (int)$setting->value : 2;
+
+        $today = Carbon::today();
+        $startDate = Carbon::parse('2026-07-02');
+        /*
+         * فقط سفارش‌هایی که:
+         * - هنوز بررسی نشده‌اند
+         * - تاریخ انقضا دارند
+         * - از دیروز تا چند روز آینده هستند
+         */
+        $orders = Orders::whereNotNull('expire_at')
+            ->where('created_at', '>', $startDate)
+            ->where('user_id', 1)
+            ->where('reminded', 0)
+            ->whereBetween('expire_at', [
+                $today->copy()->subDay()->startOfDay(),
+                $today->copy()->addDays($day)->endOfDay(),
+            ])
+            ->take(100)
+            ->get();
+
+        foreach ($orders as $order) {
+
+            $expireAt = Carbon::parse($order->expire_at)->startOfDay();
+
+            /*
+             * اگر تاریخ انقضا آینده باشد: عدد مثبت
+             * اگر امروز باشد: 0
+             * اگر دیروز گذشته باشد: -1
+             */
+            $remainingDays = $today->diffInDays($expireAt, false);
+
+            /*
+             * اگر یک روز از انقضا گذشته باشد
+             */
+            if ($remainingDays == -1) {
+                $order->reminded = 2;
+                $order->save();
+                continue;
+            }
+
+            /*
+             * اگر تعداد روز باقی‌مانده کمتر یا مساوی مقدار تنظیمات بود
+             */
+            if ($remainingDays >= 0 && $remainingDays <= $day) {
+
+                // اینجا پیام تمدید را ارسال کن
+                $this->sendRenewReminderMessage($order, $remainingDays);
+
+                $order->reminded = 1;
+                $order->save();
+            }
+        }
+
+        return true;
+    }
+
+    private function sendRenewReminderMessage($order, int $remainingDays)
+    {
+        $chatId = User::where('id', $order->user_id)->first()->tel_id;
+        $text = "⏰ یادآوری تمدید سرویس\n\n";
+        $text .= "سفارش شماره:{$order->id}\n\n";
+
+        if ($remainingDays == 0) {
+            $text .= "کاربر عزیز، سرویس شما امروز منقضی می‌شود.\n";
+        } else {
+            $text .= "کاربر عزیز، فقط {$remainingDays} روز تا پایان سرویس شما باقی مانده است.\n";
+        }
+        $text .= "\nبرای جلوگیری از قطعی سرویس، لطفاً نسبت به تمدید اقدام کنید.";
+
+        $telegram = new Telegram(env('TELEGRAM_BOT_TOKEN'));
+        $telegram->sendMessage([
+            'chat_id' => $chatId,
+            'text' => $text,
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => [
+                    [
+                        [
+                            'text' => '📄 تمدید سفارش',
+                            'callback_data' => "type=clientSingleOrder|id={$order->id}",
+                        ]
+                    ]
+                ]
+            ]),
+        ]);
     }
 
 
     public function expireOrders()
     {
+        $now = Carbon::now();
 
+        $startDate = Carbon::parse('2026-07-02');
+
+        $orders = Orders::whereNotNull('expire_at')
+            ->where('created_at', '>', $startDate)
+            ->where('user_id', 1)
+            ->where('reminded', '!=', 2)
+            ->where('expire_at', '<=', $now)
+            ->take(100)
+            ->get();
+
+        foreach ($orders as $order) {
+
+            // لغو سفارش
+            $order->status = 'failed';
+            $order->reminded = 2;
+            $order->save();
+
+            $this->sendExpiredOrderMessage($order);
+        }
+
+        return true;
+    }
+
+    private function sendExpiredOrderMessage($order)
+    {
+        $text = "❌ <b>سرویس شما منقضی شد</b>\n\n";
+        $text .= "سفارش شماره:{$order->id}\n\n";
+        $text .= "کاربر عزیز، زمان سرویس شما به پایان رسیده و سفارش شما لغو شد.\n\n";
+        $text .= "برای استفاده مجدد، لطفاً نسبت به تمدید یا خرید سرویس جدید اقدام کنید.";
+
+        $chatId = User::where('id', $order->user_id)->first()->tel_id;
+
+        if (empty($chatId) && !empty($order->user?->tel_id)) {
+            $chatId = $order->user->tel_id;
+        }
+
+        if (empty($chatId)) {
+            return false;
+        }
+
+        $telegram = new Telegram(env('TELEGRAM_BOT_TOKEN'));
+        $telegram->sendMessage([
+            'chat_id' => $chatId,
+            'text' => $text,
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => [
+                    [
+                        [
+                            'text' => '📄 تمدید سفارش',
+                            'callback_data' => "type=clientSingleOrder|id={$order->id}",
+                        ]
+                    ]
+                ]
+            ]),
+        ]);
+        return true;
     }
 
     public function ramzinoFailCallback(Request $request)
