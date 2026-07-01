@@ -1466,7 +1466,7 @@ class TelegramBotController extends Controller
             'sub_id' => $result['user']['subscription_url'],
             'plan' => 0,
             'panel_id' => $panel->id,
-            'inbound_id' => 0,
+            'inbound_id' => 13,
             'system_type' => 'pasarguard',
             'expire_at' => Carbon::now()->addDays((int)$days)->format('Y-m-d H:i:s'),
             'status' => 1,
@@ -4254,7 +4254,7 @@ $codeText
 
         if (count($plans) > 0) {
             $pasarguardPercent = 0;
-            if ($order->inbound_id == 16) {
+            if ($order->inbound_id == 16 || $order->inbound_id == 13) {
                 $pasarguardDetail = $panel->detail;
                 $pasarguardPercent = $pasarguardDetail['percent'];
             }
@@ -4313,7 +4313,7 @@ $codeText
         $panel = Panels::find($order->panel_id);
 
         $pasarguardPercent = 0;
-        if ($order->inbound_id == 16) {
+        if ($order->inbound_id == 16 || $order->inbound_id == 13) {
             $pasarguardDetail = $panel->detail;
             $pasarguardPercent = $pasarguardDetail['percent'];
         }
@@ -4782,7 +4782,7 @@ $codeText
         if (count($list) > 0) {
 
             $pasarguardPercent = 0;
-            if ($order->inbound_id == 16) {
+            if ($order->inbound_id == 16 || $order->inbound_id == 13) {
                 $pasarguardDetail = $panel->detail;
                 $pasarguardPercent = $pasarguardDetail['percent'];
             }
@@ -4848,7 +4848,7 @@ $codeText
         $perGbPrice = $service->price_per_gb;
 
         $pasarguardPercent = 0;
-        if ($order->inbound_id == 16) {
+        if ($order->inbound_id == 16 || $order->inbound_id == 13) {
             $pasarguardDetail = $panel->detail;
             $pasarguardPercent = $pasarguardDetail['percent'];
         }
