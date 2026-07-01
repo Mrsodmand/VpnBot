@@ -1513,6 +1513,7 @@ $codeText
             ]);
         }
 
+        return $this->deleteChat();
 
     }
 
