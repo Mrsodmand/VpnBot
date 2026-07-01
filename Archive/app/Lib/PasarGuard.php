@@ -1,6 +1,6 @@
 <?php
 
-namespace App\lib;
+namespace App\Lib;
 
 use Illuminate\Support\Facades\Cache;
 
@@ -563,5 +563,22 @@ class PasarGuard
             'config' => $config['body'],
             'subscription_url' => $user['subscription_url'] ?? $user['user']['subscription_url'] ?? null,
         ];
+    }
+
+    public function getUsersByGroup($groupId, $limit = 300, $offset = 0)
+    {
+        if (!$this->token) {
+            return false;
+        }
+
+        return $this->request([
+            'link' => "{$this->url}/api/users",
+            'method' => 'GET',
+            'query' => [
+                'group' => (int) $groupId,
+                'limit' => (int) $limit,
+                'offset' => (int) $offset,
+            ],
+        ]);
     }
 }
