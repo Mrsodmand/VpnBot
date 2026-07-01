@@ -3936,8 +3936,8 @@ $codeText
             $buttons[] = [
                 [
                     'text' => '📚 فایل های راهنما',
-                    'callback_data' => "type=clientGuides|id={$order->id}",
-                ],
+                    'url' => "https://t.me/ipsabetme/105",
+                    ],
                 [
                     'text' => '🔄 تمدید سرویس',
                     'callback_data' => "type=clientRenewOrder|id={$order->id}",
