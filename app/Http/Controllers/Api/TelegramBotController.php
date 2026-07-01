@@ -3990,7 +3990,7 @@ $codeText
         $message .= "<b>حجم مصرف شده:</b> {$totalUsed} گیگ\n";
         $message .= "<b>حجم باقی مانده:</b> {$left} گیگ\n";
         $message .= "<b>زمان پایان:</b> {$expireTime}\n\n";
-        if ($order->inbound_id != 16 || $order->inbound_id != 13) {
+        if ($order->inbound_id != 16 && $order->inbound_id != 13) {
             $configCode = htmlspecialchars($configCodeRaw, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             $message .= "<b>کد کانفیگ:</b>\n<code>{$configCode}</code>\n\n";
         } else {
