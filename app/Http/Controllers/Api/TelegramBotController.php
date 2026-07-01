@@ -9077,30 +9077,40 @@ $codeText
 
         $buttons[] = [
             [
-                'text' => "=====  آیدی کانال ها  =====",
-                'callback_data' => "ignore",
-                'style' => 'danger'
-            ]
-        ];
-        $buttons[] = [
-            [
                 'text' => "✅ تراکنشات",
                 'callback_data' => "type=adminChangeSetting|k=cart_be_cart_id|p_path=adminBotSetting",
             ]
             , [
-                'text' => "📊 گزارشات",
+                'text' => "📊 کانال گزارشات",
                 'callback_data' => "type=adminChangeSetting|k=report_id|p_path=adminBotSetting",
             ]
         ];
 
         $buttons[] = [
             [
-                'text' => "💳 پشتیبانی",
+                'text' => "💳 کانال پشتیبانی",
                 'callback_data' => "type=adminChangeSetting|k=support_id|p_path=adminBotSetting",
             ], [
-                'text' => "✅ کانال",
+                'text' => "✅ کانال ربات",
                 'callback_data' => "type=adminChangeSetting|k=channel_id|p_path=adminBotSetting",
             ]
+        ];
+
+        $buttons[] = [
+            [
+                'text' => "💳 هشدار اتمام حجم",
+                'callback_data' => "type=adminChangeSetting|k=alert-bw|p_path=adminBotSetting",
+            ],
+            [
+                'text' => "💳 هشدار اتمام زمان",
+                'callback_data' => "type=adminChangeSetting|k=alert-time|p_path=adminBotSetting",
+            ],
+        ];
+        $buttons[] = [
+            [
+                'text' => "💳 حذف سفارش کاربر",
+                'callback_data' => "type=adminChangeSetting|k=expire-order|p_path=adminBotSetting",
+            ],
         ];
 
         $buttons[] = $this->adminFooterButtons('type=adminSetting');

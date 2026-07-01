@@ -80,7 +80,19 @@ class DefaultController extends Controller
             'channel-join' => [
                 'name' => 'جوین اجباری',
                 'value' => -1
-            ]
+            ],
+            'alert-bw' => [
+                'name' => 'هشدار اتمام حجم ( مگابایت‌ )',
+                'value' => 1024
+            ],
+            'alert-time' => [
+                'name' => 'هشدار اتمام زمان ( روز )',
+                'value' => 2
+            ],
+            'expire-order' => [
+                'name' => 'هشدار اتمام انقضا و حذف سفارش بعد از عدم تمدید سفارش توسط کاربر ( روز )',
+                'value' => 7
+            ],
         ];
 
         $dataMap = [];

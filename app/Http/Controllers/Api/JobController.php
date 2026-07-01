@@ -10,6 +10,7 @@ use App\Models\HegzaUser;
 use App\Models\Message;
 use App\Models\Orders;
 use App\Models\Panels;
+use App\Models\Setting;
 use App\Models\TelegramData;
 use App\Models\User;
 use App\Services\Telegram;
@@ -100,7 +101,8 @@ class JobController extends Controller
 
     public function checkUserBw()
     {
-        $gb = 1000;
+        $setting = Setting::where('key', 'alert-bw')->first();
+        $gb = !is_null($setting) ? $setting->value : 1024;
         $thresholdBytes = $gb * 1024 * 1024;
         $Orders = Orders::where('bw_reminded', 0)->take(100)->get();
 
@@ -145,7 +147,7 @@ class JobController extends Controller
                     $order->save();
                     continue;
                 }
-                $this->sendLowVolumeMessage($order, $pgUser, $remainingMb,$gb);
+                $this->sendLowVolumeMessage($order, $pgUser, $remainingMb, $gb);
                 $order->bw_reminded = 1;
                 $order->save();
             }
@@ -154,7 +156,7 @@ class JobController extends Controller
         }
     }
 
-    private function sendLowVolumeMessage($order, array $pgUser, float $remainingMb,int$gb): void
+    private function sendLowVolumeMessage($order, array $pgUser, float $remainingMb, int $gb): void
     {
         $telegramBotToken = env('TELEGRAM_BOT_TOKEN');
 
