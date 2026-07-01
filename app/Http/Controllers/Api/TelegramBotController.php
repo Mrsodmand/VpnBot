@@ -1400,7 +1400,7 @@ class TelegramBotController extends Controller
 
         $oldPrice = 5000;
         $price = 10000 * 1.7;
-        $inboundId = 13;
+        $inboundId = 14;
         $targetUser = $this->user;
         $bw = (int)$data['bw'];
         $days = (int)$data['days'];
@@ -1466,7 +1466,7 @@ class TelegramBotController extends Controller
             'sub_id' => $result['user']['subscription_url'],
             'plan' => 0,
             'panel_id' => $panel->id,
-            'inbound_id' => 13,
+            'inbound_id' => 14,
             'system_type' => 'pasarguard',
             'expire_at' => Carbon::now()->addDays((int)$days)->format('Y-m-d H:i:s'),
             'status' => 1,
@@ -3990,7 +3990,7 @@ $codeText
         $message .= "<b>حجم مصرف شده:</b> {$totalUsed} گیگ\n";
         $message .= "<b>حجم باقی مانده:</b> {$left} گیگ\n";
         $message .= "<b>زمان پایان:</b> {$expireTime}\n\n";
-        if ($order->inbound_id != 16 && $order->inbound_id != 13) {
+        if ($order->inbound_id != 16 && $order->inbound_id != 14) {
             $configCode = htmlspecialchars($configCodeRaw, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             $message .= "<b>کد کانفیگ:</b>\n<code>{$configCode}</code>\n\n";
         } else {
@@ -4254,7 +4254,7 @@ $codeText
 
         if (count($plans) > 0) {
             $pasarguardPercent = 0;
-            if ($order->inbound_id == 16 || $order->inbound_id == 13) {
+            if ($order->inbound_id == 16 || $order->inbound_id == 14) {
                 $pasarguardDetail = $panel->detail;
                 $pasarguardPercent = $pasarguardDetail['percent'];
             }
@@ -4313,7 +4313,7 @@ $codeText
         $panel = Panels::find($order->panel_id);
 
         $pasarguardPercent = 0;
-        if ($order->inbound_id == 16 || $order->inbound_id == 13) {
+        if ($order->inbound_id == 16 || $order->inbound_id == 14) {
             $pasarguardDetail = $panel->detail;
             $pasarguardPercent = $pasarguardDetail['percent'];
         }
@@ -4782,7 +4782,7 @@ $codeText
         if (count($list) > 0) {
 
             $pasarguardPercent = 0;
-            if ($order->inbound_id == 16 || $order->inbound_id == 13) {
+            if ($order->inbound_id == 16 || $order->inbound_id == 14) {
                 $pasarguardDetail = $panel->detail;
                 $pasarguardPercent = $pasarguardDetail['percent'];
             }
@@ -4848,7 +4848,7 @@ $codeText
         $perGbPrice = $service->price_per_gb;
 
         $pasarguardPercent = 0;
-        if ($order->inbound_id == 16 || $order->inbound_id == 13) {
+        if ($order->inbound_id == 16 || $order->inbound_id == 14) {
             $pasarguardDetail = $panel->detail;
             $pasarguardPercent = $pasarguardDetail['percent'];
         }
