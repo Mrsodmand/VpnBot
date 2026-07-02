@@ -9,6 +9,7 @@ use App\Models\Panels;
 use App\Models\Service;
 use App\Models\Setting;
 use App\Services\Telegram;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class DefaultController extends Controller
@@ -144,116 +145,8 @@ class DefaultController extends Controller
 
     public function exportData()
     {
-        $ids = [
-            4437,
-            4433,
-            4362,
-            4340,
-            4404,
-            4382,
-            4381,
-            4326,
-            4321,
-            4288,
-            4348,
-            4344,
-            4426,
-            4385,
-            4329,
-            3290,
-            3231,
-            4349,
-            4347,
-            4365,
-            4324,
-            4446,
-            4358,
-            4436,
-            4435,
-            4393,
-            4397,
-            4371,
-            4370,
-            4430,
-            4355,
-            4429,
-            4335,
-            4301,
-            4354,
-            4320,
-            4438,
-            4334,
-            4458,
-            4312,
-            4405,
-            4327,
-            4372,
-            4434,
-            4413,
-            4412,
-            4396,
-            3259,
-            4387,
-            4342,
-            4307,
-            4350,
-            4325,
-            4423,
-            4380,
-            4357,
-            4302,
-            4364,
-            4454,
-            4373,
-            4425,
-            4411,
-            4368,
-            3244,
-            4346,
-            4343,
-            4379,
-            4388,
-            4363,
-            4378,
-            4356,
-            4391,
-            4322,
-            4377,
-            3341,
-            4366,
-            4352,
-            4336,
-            4332,
-            4394,
-            4310,
-            4406,
-            4338,
-            4333,
-            4369,
-            4389,
-            4331,
-            4323,
-            4328,
-            4383,
-            4444,
-            4330,
-            4447,
-            4375,
-            4402,
-            4399,
-            4442,
-            4386,
-            4400,
-            4345,
-            4455,
-            4359,
-            4398,
-            4415,
-            4395,
-            4416,
-            4351,
-        ];
-        $orders = Orders::wherein('uid', $ids)->get();
+
+        $orders = Orders::where('inbound_id', 14)->get();
 
         $panel = Panels::find(1);
         $pasarGuard = new PasarGuard([
@@ -265,13 +158,28 @@ class DefaultController extends Controller
 
         foreach ($orders as $order) {
 
-            $data = [
-                'status' => 'active',
-                'group_ids' => [14]
-            ];
-            $result = $pasarGuard->updateUserById($order->uid, $data);
-            $order->inbound_id = 14;
-            $order->save();
+            $pgUser = $pasarGuard->getUserById($order->uid);
+            if ($pgUser['status']) {
+                $convertedGb = byteToGb($pgUser['data_limit']);
+                $days = match (true) {
+                    $convertedGb <= 100 => 30,
+                    $convertedGb <= 200 => 60,
+                    default => 90,
+                };
+                $expire = Carbon::parse($pgUser['expire'])->addDays((int)$days)->format('Y-m-d H:i:s');
+
+                $data = [
+                    'status' => 'active',
+                    'expire' => $expire,
+                    'data_limit' => $pgUser['data_limit'],
+                ];
+
+                $result = $pasarGuard->updateUserById($order->uid, $data);
+
+                $order->expire_at = $expire;
+                $order->save();
+            }
+
         }
 
     }

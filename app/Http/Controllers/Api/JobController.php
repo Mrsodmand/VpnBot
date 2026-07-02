@@ -367,4 +367,28 @@ class JobController extends Controller
     }
 
 
+    public function convertDates()
+    {
+
+        $panel = Panels::find(1);
+        $pasarGuard = new PasarGuard([
+            'id' => $panel->id,
+            'url' => $panel->url,
+            'username' => $panel->username,
+            'password' => $panel->password,
+        ]);
+
+        $pgUser = $pasarGuard->getAllUsers();
+
+        foreach ($pgUser['users'] as $user){
+            $order = Orders::where('uid',$user['id'])->first();
+            if (!is_null($order)){
+                $order->expire_at = Carbon::parse($user['expire']);
+                $order->save();
+            }
+        }
+
+    }
+
+
 }
