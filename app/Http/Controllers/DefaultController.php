@@ -286,7 +286,21 @@ class DefaultController extends Controller
     public function importUsers()
     {
         $backups = [
-            'ch1', 'de2', 'de3', 'de4', 'de5', 'de6', 'fi1', 'fr1', 'it1', 'nl1', 'pl1', 'uk2', 'us1', 'tr1', 'ae2'
+            'ch1',
+            'de2',
+            'de3',
+            'de4',
+            'de5',
+            'de6',
+            'fi1',
+            'fr1',
+            'it1',
+            'nl1',
+            'pl1',
+            'uk2',
+            'us1',
+            'tr1',
+            'ae2'
         ];
         set_time_limit(999999999);
         foreach ($backups as $serverName) {
@@ -295,38 +309,41 @@ class DefaultController extends Controller
             $oldClients = json_decode($json, true);
             foreach ($oldClients as $old) {
                 try {
-                    $modal = ConvertedGb::where('uid', $old['email'])->first();
-                    if (is_null($modal)) {
+                    if ($old['total'] == 0) {
+                        $modal = ConvertedGb::where('uid', $old['email'])->first();
+                        if (is_null($modal)) {
 
-                        $ip = DB::table('ip')
-                            ->where('remark', $old['email'])
-                            ->first();
-
-                        if (!is_null($ip)) {
-                            $user = DB::table('customer')
-                                ->where('id', $ip->customer_id)
+                            $ip = DB::table('ip')
+                                ->where('remark', $old['email'])
                                 ->first();
 
-                            $usedData = $old['down'] + $old['up'];
-                            $total = byteToGb($old['total'] - $usedData);
+                            if (!is_null($ip)) {
+                                $user = DB::table('customer')
+                                    ->where('id', $ip->customer_id)
+                                    ->first();
 
-                            if ($total > 0) {
-                                $modal = new ConvertedGb();
-                                $modal->uid = $old['email'];
-                                $modal->tel_id = !is_null($user->tel_id) ? $user->tel_id : "";
-                                $modal->mobile = !is_null($user->mobile) ? $user->mobile : "";
-                                $modal->order_id = $ip->order_id;
-                                $modal->server = $serverName;
-                                $modal->gb = $total;
-                                $modal->save();
+                                $usedData = byteToGb($old['down'] + $old['up']);
+                                $total =  $ip->bandwidth - $usedData;
+
+                                if ($total > 0) {
+
+                                    $modal = new ConvertedGb();
+                                    $modal->uid = $old['email'];
+                                    $modal->tel_id = !is_null($user->tel_id) ? $user->tel_id : "";
+                                    $modal->mobile = !is_null($user->mobile) ? $user->mobile : "";
+                                    $modal->order_id = $ip->order_id;
+                                    $modal->server = $serverName;
+                                    $modal->gb = $total;
+                                    $modal->save();
+                                }
                             }
                         }
-
                     }
                 } catch (\Exception $exception) {
                     dd($old, $user, $ip, $exception->getMessage());
                 }
             }
+//            dd($usernames);
             $totalGb[] = [
                 'Server' => $serverName,
                 'Bw' => ConvertedGb::where('server', $serverName)->sum('gb') . ' GB',
