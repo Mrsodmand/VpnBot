@@ -2118,7 +2118,8 @@ $codeText
 
         $allowSellExtra = Setting::where('key', 'extra')->first();
         if (!is_null($allowSellExtra) && $allowSellExtra->value == 1) {
-            $allowSellExtra = true;
+//            $allowSellExtra = true;
+            $allowSellExtra = false;
         } else {
             $allowSellExtra = false;
         }
