@@ -31,7 +31,6 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
-use function Laravel\Prompts\number;
 
 class TelegramBotController extends Controller
 {
@@ -5095,7 +5094,7 @@ $codeText
                 'inline_keyboard' => $keyboard
             ]),
         ];
-        if ($this->method == 'toUser'){
+        if ($this->method == 'toUser') {
             $this->deleteChat();
         }
         return $this->sendMessage($data, 'message');
@@ -9981,7 +9980,6 @@ $codeText
         $row = [];
 
         foreach ($fields as $key => $field) {
-
             $isEmpty = (
                 $field['value'] === null ||
                 $field['value'] === ''
@@ -9994,13 +9992,11 @@ $codeText
             */
 
             if ($key == 'status') {
-
                 $valueText = match ((int)$field['value']) {
                     1 => '🟢 فعال',
                     -1 => '🔴 غیرفعال',
                     default => '⚪️ نامشخص'
                 };
-
             } elseif ($key == 'price_per_gb') {
                 $valueText = number_format($field['value']) . ' تومان ';
             } else {
@@ -10019,8 +10015,8 @@ $codeText
             */
 
             $btnText = $isEmpty
-                ? "🔴"
-                : "🟢";
+                ? "🔴 " . $field['label']
+                : $field['label'];
 
             $row[] = [
                 'text' => $btnText,
@@ -10043,7 +10039,6 @@ $codeText
         | Bottom Buttons
         |--------------------------------------------------------------------------
         */
-
         $keyboard[] = [
             ['text' => 'حذف سرویس',
                 'callback_data' => "type=adminServiceDeleteDetail|id={$id}",
