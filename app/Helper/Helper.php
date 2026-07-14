@@ -287,6 +287,19 @@ if (!function_exists('calculateExtraDiscount')) {
     }
 }
 
+if (!function_exists('calculateExtraDiscountV2')) {
+    function calculateExtraDiscountV2($plan, $pricePerGb)
+    {
+        $basePrice = $plan * $pricePerGb;
+        $discount = 0;
+        $price = $basePrice - ($basePrice * $discount / 100);
+        return [
+            'base-price' => $basePrice,
+            'price' => $price,
+        ];
+    }
+}
+
 if (!function_exists('calculatePlanDiscount')) {
     function calculatePlanDiscount($plan)
     {

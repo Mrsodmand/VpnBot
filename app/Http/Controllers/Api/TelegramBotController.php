@@ -31,6 +31,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use function Laravel\Prompts\number;
 
 class TelegramBotController extends Controller
 {
@@ -271,10 +272,10 @@ class TelegramBotController extends Controller
                 break;
 
             case "clientBuyExtra":
-                return $this->clientBuyExtra($type);
+                return $this->clientBuyExtraV2($type);
                 break;
             case "clientSubmitExtra":
-                return $this->clientSubmitExtra($type);
+                return $this->clientSubmitExtraV2($type);
                 break;
 
             // Seller Access
@@ -3207,7 +3208,7 @@ $codeText
                 return $this->clientFinalRenew(['id' => $payment->id]);
                 break;
             case "3":
-                return $this->clientFinalExtra(['id' => $payment->id]);
+                return $this->clientFinalExtraV2(['id' => $payment->id]);
                 break;
             case "4":
                 return $this->addFundFinal(['id' => $payment->id]);
@@ -3938,7 +3939,7 @@ $codeText
                 [
                     'text' => '📚 فایل های راهنما',
                     'url' => "https://t.me/ipsabetme/105",
-                    ],
+                ],
                 [
                     'text' => '🔄 تمدید سرویس',
                     'callback_data' => "type=clientRenewOrder|id={$order->id}",
@@ -4997,6 +4998,262 @@ $codeText
         return $this->ExtraClient($panel, $order, $extra, $targetUser, $payment, $adminMethod, $channelId);
     }
 
+
+    protected function clientBuyExtraV2($data)
+    {
+        $order = Orders::find($data['id']);
+        $panel = Panels::find($order->panel_id);
+        $count = $data['count'] ?? 1;
+        $this->method = $data['method'] ?? 'toUser';;
+
+        if ($count < 1) {
+            return $this->telegramSdk->answerCallback([
+                'callback_query_id' => $this->callbackId,
+                'text' => "حجم باید بیشتر از یک گیگ باشد.",
+                'show_alert' => true,
+                'cache_time' => 1,
+            ]);
+        }
+
+        $service = Service::find($panel->panel_type);
+        if (is_null($service)) {
+            return $this->sendTemporaryMessage('سرویس مورد نظر یافت نشد');
+        }
+
+
+        $allowSellExtra = Setting::where('key', 'extra')->first();
+        if (!is_null($allowSellExtra) && $allowSellExtra->value != 1) {
+            return $this->home();
+        }
+
+        $perGbPrice = $service->price_per_gb;
+
+
+        $pasarguardPercent = 0;
+        if ($order->inbound_id == 16 || $order->inbound_id == 14) {
+            $pasarguardDetail = $panel->detail;
+            $pasarguardPercent = $pasarguardDetail['percent'];
+        }
+
+        if ($pasarguardPercent != 0) {
+            $basePrice = $count * $perGbPrice;
+            $percentPrice = ($basePrice / 100) * $pasarguardPercent;
+            $planPrice = $basePrice + $percentPrice;
+            $extraPrice = $planPrice;
+            $price = number_format($planPrice);
+        } else {
+            $price = calculateExtraDiscount($count, $perGbPrice);
+            $extraPrice = $price['price'];
+            $price = number_format($price['price']);
+        }
+
+        $text = headTitle("خرید حجم اضافه");
+        $text .= "
+💡 لطفاً حجم مورد نظر خود را انتخاب کنید:
+حجم انتخاب شده: {$count} گیگ
+مبلغ: {$price} تومان
+";
+
+        $decrement = max(1, $count - 1);
+        $increment = min(100, $count + 1);
+        $keyboard[] = [
+            [
+                'text' => '➖',
+                'callback_data' => $count <= 1
+                    ? 'ignore'
+                    : "type=clientBuyExtra|id={$order->id}|count={$decrement}|method=edit",
+                'style' => 'danger',
+            ],
+            [
+                'text' => "🛒 {$count}",
+                'callback_data' => "ignore",
+            ],
+            [
+                'text' => '➕',
+                'callback_data' => $count >= 10
+                    ? 'ignore'
+                    : "type=clientBuyExtra|id={$order->id}|count={$increment}|method=edit",
+                'style' => 'success',
+            ],
+        ];
+
+        $keyboard[] = [
+            [
+                'text' => "ادامه خرید",
+                'callback_data' => "type=clientSubmitExtra|o_id={$order->id}|ex_id={$count}",
+            ],
+            [
+                'text' => 'بازگشت',
+                'callback_data' => "type=clientSingleOrder|id={$order->id}",
+            ],
+        ];
+        $data = [
+            'chat_id' => $this->chatId,
+            'text' => trim($text),
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => $keyboard
+            ]),
+        ];
+        if ($this->method == 'toUser'){
+            $this->deleteChat();
+        }
+        return $this->sendMessage($data, 'message');
+    }
+
+    protected function clientSubmitExtraV2($data)
+    {
+        $orderId = $data['o_id'];
+        $extraId = $data['ex_id'];
+        $user = $this->user;
+
+        $order = Orders::find($orderId);
+        $panel = Panels::find($order->panel_id);
+        $extra = $extraId;
+        $service = Service::find($panel->panel_type);
+        if (is_null($service)) {
+            return $this->sendTemporaryMessage('سرویس مورد نظر یافت نشد');
+        }
+        $perGbPrice = $service->price_per_gb;
+
+        $pasarguardPercent = 0;
+        if ($order->inbound_id == 16 || $order->inbound_id == 14) {
+            $pasarguardDetail = $panel->detail;
+            $pasarguardPercent = $pasarguardDetail['percent'];
+        }
+
+        if ($pasarguardPercent != 0) {
+            $basePrice = $extraId * $perGbPrice;
+            $percentPrice = ($basePrice / 100) * $pasarguardPercent;
+            $planPrice = $basePrice + $percentPrice;
+            if (false) {
+                $discount = ($planPrice / 100) * $extra->discount;
+                $planPrice = $planPrice - $discount;
+            }
+            $extraPrice = $planPrice;
+            $price = number_format($planPrice);
+        } else {
+            $price = calculateExtraDiscount($extra, $perGbPrice);
+            $extraPrice = $price['price'];
+            $price = number_format($price['price']);
+        }
+
+        $detail['extra-id'] = $extra;
+
+        $payment = new Payment();
+        $payment->user_id = $user->id;
+        $payment->order_id = $orderId;
+        $payment->price = $extraPrice;
+        $payment->status = 0;
+        $payment->detail = $detail;
+        $payment->type = 3;
+        $payment->expired_at = Carbon::now()->addMinutes(10);
+        $payment->save();
+
+        $text = headTitle("💳 انتخاب روش پرداخت");
+
+        $text .= "
+🛒 <b>خلاصه سفارش شما</b>
+📦 <b>نوع سرویس:</b>
+خرید حجم
+🌐 <b>حجم انتخابی:</b> <code>{$extra} گیگابایت</code>
+💰 <b>مبلغ قابل پرداخت:</b><code>{$price}</code>
+━━━━━━━━━━━━━━━━━━
+🔻 لطفاً روش پرداخت مورد نظر خود را انتخاب کنید:";
+
+        $keyboard[] = [
+            [
+                'text' => 'کیف پول',
+                'callback_data' => "type=paymentWallet|id={$payment->id}",
+            ],
+        ];
+
+        $cartBeCart = Setting::where('key', 'cart_be_cart')->first();
+        if (!is_null($cartBeCart) && $cartBeCart->value == 1) {
+            $keyboard[] = [
+                [
+                    'text' => 'کارت به کارت',
+                    'callback_data' => "type=paymentCartBeCart|id={$payment->id}",
+                ],
+            ];
+        }
+
+        $keyboard[] = [
+            [
+                'text' => '🔙 بازگشت',
+                'callback_data' => "type=clientRenewOrder|id={$orderId}",
+            ],
+        ];
+        $data = [
+            'chat_id' => $this->chatId,
+            'text' => trim($text),
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => $keyboard
+            ]),
+        ];
+
+        return $this->sendMessage($data, 'message');
+    }
+
+    protected function clientFinalExtraV2($data)
+    {
+
+        $payment = Payment::find($data['id']);
+        $targetUser = User::find($payment->user_id);
+
+        $adminMethod = 'toUser';
+        $userMethod = 'toUser';
+
+        $transactionChannel = Setting::where('key', 'cart_be_cart_id')->first();
+        $channelId = (!is_null($transactionChannel) && !empty($transactionChannel->value))
+            ? $transactionChannel->value
+            : optional(User::where('is_admin', 1)->first())->tel_id;
+
+        if (!$channelId) {
+            return $this->sendTemporaryMessage('❌ مقصد ارسال رسید یافت نشد.');
+        }
+        if ($payment->method == 'cart-be-cart') {
+            $caption = "✅ <b>تراکنش تایید شد</b>\n\n⏳ در حال تحویل سفارش به کاربر هستیم...\nلطفاً چند لحظه صبر کنید.";
+            $adminMethod = 'edit';
+
+            if ($this->isPhoto) {
+                $this->telegramSdk->editCaption([
+                    'chat_id' => $channelId,
+                    'message_id' => $this->messageId,
+                    'caption' => $caption,
+                    'parse_mode' => 'HTML',
+                ]);
+            } else {
+                $this->method = $adminMethod;
+                $this->sendMessage([
+                    'chat_id' => $channelId,
+                    'text' => $caption,
+                    'parse_mode' => 'HTML',
+                ], 'message');
+            }
+        }
+        if ($payment->method == 'wallet') {
+
+            $caption = "✅ <b>تراکنش تایید شد</b>\n\n⏳ در حال پردازش سفارش هستیم...\nلطفاً چند لحظه صبر کنید.";
+
+            $this->sendMessage([
+                'chat_id' => $targetUser->tel_id,
+                'text' => $caption,
+                'parse_mode' => 'HTML',
+            ], 'message');
+
+            $userMethod = 'edit';
+        }
+
+        $order = Orders::find($payment->order_id);
+
+        $extra = $payment->detail['extra-id'];
+        $panel = Panels::find($order->panel_id);
+
+        return $this->ExtraClient($panel, $order, $extra, $targetUser, $payment, $adminMethod, $channelId);
+    }
+
     protected function ExtraClient($panel, $order, $extra, $targetUser, $payment, $adminMethod, $channelId)
     {
 
@@ -5016,7 +5273,7 @@ $codeText
             $result = $pasarGuard->getUserById($order->uid);
 
             $expire = Carbon::parse($result['expire'])->format('Y-m-d H:i:s');
-            $band = gbToByte($extra->name);
+            $band = gbToByte($extra);
             $data = [
                 'status' => 'active',
                 'expire' => $expire,
@@ -11502,7 +11759,7 @@ $codeText
             ]);
         }
         $user = $this->user;
-        if ($user->is_admin == 0){
+        if ($user->is_admin == 0) {
             return $this->clientSingleOrder(['id' => $data['id']]);
         }
 
