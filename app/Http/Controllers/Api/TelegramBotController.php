@@ -5325,6 +5325,10 @@ $codeText
                     $caption .= "👨‍💻 <b>تایید شده توسط:</b> {$adminUserName}\n";
                     $caption .= "📌 <b>وضعیت:</b> موفق\n";
                     $caption .= "━━━━━━━━━━━━━━━\n";
+                    $caption .= "💳 <b>اطلاعات سفارش</b>\n";
+                    $caption .= "💰 <b>شماره سفارش</b> <code>{$order->id}</code>\n";
+                    $caption .= "💰 <b>تعداد گیگ</b> <code>{$extra}</code>\n";
+                    $caption .= "💰 <b>ریمارک</b> <code>{$order->remark}</code>\n";
                 } elseif ($payment->method == 'wallet') {
 
                     $this->deleteChat();
@@ -5336,6 +5340,10 @@ $codeText
                     $caption .= "💳 <b>جزئیات پرداخت</b>\n";
                     $caption .= "💰 <b>مبلغ واریزی:</b> <code>{$price}</code> تومان\n";
                     $caption .= "💰 <b>نوع پرداخت:</b> کیف پول\n";
+                    $caption .= "💳 <b>اطلاعات سفارش</b>\n";
+                    $caption .= "💰 <b>شماره سفارش</b> <code>{$order->id}</code>\n";
+                    $caption .= "💰 <b>تعداد گیگ</b> <code>{$extra}</code>\n";
+                    $caption .= "💰 <b>ریمارک</b> <code>{$order->remark}</code>\n";
                 }
 
                 if ($this->isPhoto) {
