@@ -5042,7 +5042,7 @@ $codeText
             $extraPrice = $planPrice;
             $price = number_format($planPrice);
         } else {
-            $price = calculateExtraDiscount($count, $perGbPrice);
+            $price = calculateExtraDiscountV2($count, $perGbPrice);
             $extraPrice = $price['price'];
             $price = number_format($price['price']);
         }
@@ -5133,7 +5133,7 @@ $codeText
             $extraPrice = $planPrice;
             $price = number_format($planPrice);
         } else {
-            $price = calculateExtraDiscount($extra, $perGbPrice);
+            $price = calculateExtraDiscountV2($extra, $perGbPrice);
             $extraPrice = $price['price'];
             $price = number_format($price['price']);
         }
