@@ -5069,7 +5069,7 @@ $codeText
             ],
             [
                 'text' => '➕',
-                'callback_data' => $count >= 10
+                'callback_data' => $count >= 100
                     ? 'ignore'
                     : "type=clientBuyExtra|id={$order->id}|count={$increment}|method=edit",
                 'style' => 'success',
