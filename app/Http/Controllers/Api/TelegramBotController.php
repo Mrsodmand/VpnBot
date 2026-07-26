@@ -2761,7 +2761,7 @@ $codeText
         if (!$payment) {
             return $this->sendTemporaryMessage('❌ پرداخت پیدا نشد');
         }
-        $token = "4MC27L!9kevXBoBnc52azGd4qZmyidjamoAU2pzW";
+        $token = 'vDUgBMK8Q!fTtpqRzMS!LYtz$amgVtipr3yrWS15';
 
         $ramzino = new Ramizno("https://panel.ramzino.me/api", $token);
         $data = [
