@@ -1540,9 +1540,9 @@ $codeText
             $buttons[][] = ['text' => "📦 کارت به کارت", 'callback_data' => 'type=addFundStepOne|value=Cart'];
         }
 
-        if (!is_null($crypto) && $crypto->value == 1) {
-            $buttons[][] = ['text' => "📦 ارز دیجیتال", 'callback_data' => 'type=addFundStepOne|value=Crypto'];
-        }
+//        if (!is_null($crypto) && $crypto->value == 1) {
+//            $buttons[][] = ['text' => "📦 ارز دیجیتال", 'callback_data' => 'type=addFundStepOne|value=Crypto'];
+//        }
 
         $buttons[][] = ['text' => "برگشت", 'callback_data' => 'type=home',];
 
