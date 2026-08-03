@@ -2628,12 +2628,12 @@ $codeText
             ];
         }
 
-        $keyboard[] = [
-            [
-                'text' => 'پرداخت کریپتو',
-                'callback_data' => "type=paymentCrypto|id={$payment->id}",
-            ],
-        ];
+//        $keyboard[] = [
+//            [
+//                'text' => 'پرداخت کریپتو',
+//                'callback_data' => "type=paymentCrypto|id={$payment->id}",
+//            ],
+//        ];
 
 
         $keyboard[] = [
