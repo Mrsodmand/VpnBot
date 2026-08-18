@@ -23,6 +23,7 @@ use App\Models\Setting;
 use App\Models\TelegramData;
 use App\Models\User;
 use App\Services\OrderCountryResolver;
+use App\Services\OrderLifecycleService;
 use App\Services\Telegram;
 use App\Services\WpSyncService;
 use Carbon\Carbon;
@@ -1657,8 +1658,9 @@ class TelegramBotController extends Controller
             ->first();
 
         $list = Countries::where('type', $service_id)
-            ->where('type', $service_id)
+            ->where('status', 1)
             ->whereIn('id', $planCountryIds)
+            ->orderBy('name')
             ->paginate(10);
 
 
@@ -2285,15 +2287,29 @@ class TelegramBotController extends Controller
     protected function paymentCartBeCart($type)
     {
         $id = $type['id'] ?? null;
-
-        $this->updatePath('sendCartBeCartReceipt');
-
-        $payment = Payment::find($id);
-        $price = $payment->price ?? 0;
+        $user = $this->user;
+        $payment = Payment::where('id', $id)
+            ->where('user_id', $user->id)
+            ->first();
 
         if (!$payment) {
             return $this->sendTemporaryMessage('❌ پرداخت پیدا نشد');
         }
+
+        if ((int) $payment->type === 2) {
+            $order = Orders::where('id', $payment->order_id)->where('user_id', $user->id)->first();
+            if (!$order || !app(OrderLifecycleService::class)->canRenew($order)) {
+                return $this->sendTemporaryMessage('❌ مهلت ۷ روزه تمدید این سفارش به پایان رسیده است.');
+            }
+        } elseif ((int) $payment->type === 3) {
+            $order = Orders::where('id', $payment->order_id)->where('user_id', $user->id)->first();
+            if (!$order || !app(OrderLifecycleService::class)->canBuyExtra($order)) {
+                return $this->sendTemporaryMessage('خرید حجم برای این سفارش امکان‌پذیر نیست.');
+            }
+        }
+
+        $this->updatePath('sendCartBeCartReceipt');
+        $price = $payment->price;
 
         $cartBeCartRandom = Setting::where('key', 'cart_be_cart_random')->first();
 
@@ -2316,8 +2332,7 @@ class TelegramBotController extends Controller
         $cardNumber = $cart->cart ?? 'اطلاعات یافت نشد';
         $cardName = $cart->name ?? '—';
 
-        $user = $this->user;
-        $tel_detail = $user->tel_detail;
+        $tel_detail = is_array($user->tel_detail) ? $user->tel_detail : [];
         $tel_detail['payment-id'] = $payment->id;
         $tel_detail['payment-type'] = 'cart-be-cart';
         $tel_detail['payment-cart-number'] = $cardNumber;
@@ -2789,6 +2804,22 @@ class TelegramBotController extends Controller
             return $this->sendTemporaryMessage('تراکنش یافت نشد');
         }
 
+        if ((int) $payment->type === 2) {
+            $order = Orders::where('id', $payment->order_id)
+                ->where('user_id', $payment->user_id)
+                ->first();
+            if (!$order || !app(OrderLifecycleService::class)->canRenew($order)) {
+                return $this->sendTemporaryMessage('❌ مهلت ۷ روزه تمدید این سفارش به پایان رسیده است؛ رسید تایید نشد.');
+            }
+        } elseif ((int) $payment->type === 3) {
+            $order = Orders::where('id', $payment->order_id)
+                ->where('user_id', $payment->user_id)
+                ->first();
+            if (!$order || !app(OrderLifecycleService::class)->canBuyExtra($order)) {
+                return $this->sendTemporaryMessage('خرید حجم برای این سفارش امکان‌پذیر نیست؛ رسید تایید نشد.');
+            }
+        }
+
         if ($payment->status == 0) {
             $payment->status = 1;
             $payment->save();
@@ -2800,10 +2831,28 @@ class TelegramBotController extends Controller
     {
         $id = $type['id'];
         $user = $this->user;
-        $payment = Payment::find($id);
+        $payment = Payment::where('id', $id)
+            ->where('user_id', $user->id)
+            ->first();
 
         if (is_null($payment)) {
             return $this->sendTemporaryMessage('تراکنش یافت نشد');
+        }
+
+        if ((int) $payment->type === 2) {
+            $order = Orders::where('id', $payment->order_id)
+                ->where('user_id', $user->id)
+                ->first();
+            if (!$order || !app(OrderLifecycleService::class)->canRenew($order)) {
+                return $this->sendTemporaryMessage('❌ مهلت ۷ روزه تمدید این سفارش به پایان رسیده است.');
+            }
+        } elseif ((int) $payment->type === 3) {
+            $order = Orders::where('id', $payment->order_id)
+                ->where('user_id', $user->id)
+                ->first();
+            if (!$order || !app(OrderLifecycleService::class)->canBuyExtra($order)) {
+                return $this->sendTemporaryMessage('خرید حجم برای این سفارش امکان‌پذیر نیست.');
+            }
         }
         if ($user->balance < $payment->price) {
             $data = [
@@ -3424,6 +3473,8 @@ $codeText
         $search = $data['search'] ?? null;
 
         $user = $this->user;
+        $lifecycle = app(OrderLifecycleService::class);
+        $lifecycle->reconcileTimeStatuses($user->id);
 
         $query = Orders::where('user_id', $user->id);
 
@@ -3438,7 +3489,7 @@ $codeText
             });
         }
 
-        $list = $query
+        $list = $lifecycle->orderByStatus($query)
             ->orderByDesc('id')
             ->paginate(20, ['*'], 'page', $page);
 
@@ -3470,9 +3521,10 @@ $codeText
 
             foreach ($list as $order) {
                 $country = $orderCountries[$order->id] ?? '🌍 نامشخص';
+                $status = $lifecycle->statusMeta($order);
                 $keyboard['inline_keyboard'][] = [
                     [
-                        'text' => "{$order->id} | {$country}",
+                        'text' => "{$status['icon']} {$order->id} | {$country}",
                         'callback_data' => "type=clientSingleOrder|id={$order->id}"
                     ]
                 ];
@@ -3535,14 +3587,27 @@ $codeText
 
         $detail = is_array($order->detail)
             ? $order->detail
-            : json_decode($order->detail, true);
+            : (json_decode($order->detail, true) ?: []);
         $panel = Panels::find($order->panel_id);
+
+        if (is_null($panel)) {
+            return $this->telegramSdk->sendMessage([
+                'chat_id' => $user->tel_id,
+                'text' => "⚠️ <b>خطا در دریافت اطلاعات سرویس</b>\n\nپنل مربوط به این سفارش پیدا نشد. لطفا با پشتیبانی در ارتباط باشید.",
+                'parse_mode' => 'HTML',
+            ]);
+        }
+
+        $lifecycle = app(OrderLifecycleService::class);
+        $lifecycle->refreshTimeStatus($order);
+        $canRenew = $lifecycle->canRenew($order);
+        $status = $lifecycle->statusMeta($order);
 
         $buttons = [];
 
         $allowSellExtra = Setting::where('key', 'extra')->value('value') == 1;
 
-        if($panel->system_type != 'pasarguard'){
+        if ($panel->system_type != 'pasarguard' && $status['key'] !== Orders::STATUS_INACTIVE) {
             $buttons[] = [
                 [
                     'text' => '✏️ تغییر نام',
@@ -3556,16 +3621,16 @@ $codeText
         }
 
 
-        if ($allowSellExtra) {
+        if ($allowSellExtra && in_array($status['key'], [Orders::STATUS_ACTIVE, Orders::STATUS_DATA_EXHAUSTED], true)) {
             $buttons[] = [
                 [
                     'text' => '➕ خرید حجم',
                     'callback_data' => "type=clientBuyExtra|id={$order->id}",
                 ],
-                [
+                ...($canRenew ? [[
                     'text' => '🔄 تمدید سرویس',
                     'callback_data' => "type=clientRenewOrder|id={$order->id}",
-                ],
+                ]] : []),
             ];
 
             $buttons[] = [
@@ -3575,16 +3640,17 @@ $codeText
                 ],
             ];
         } else {
-            $buttons[] = [
-                [
+            $row = [[
                     'text' => '📚 فایل های راهنما',
                     'callback_data' => "type=clientGuides|id={$order->id}",
-                ],
-                [
+                ]];
+            if ($canRenew) {
+                $row[] = [
                     'text' => '🔄 تمدید سرویس',
                     'callback_data' => "type=clientRenewOrder|id={$order->id}",
-                ],
-            ];
+                ];
+            }
+            $buttons[] = $row;
         }
 
         $buttons[] = [
@@ -3601,25 +3667,37 @@ $codeText
         ];
 
 
-        if (is_null($panel)) {
-            return $this->telegramSdk->sendMessage([
-                'chat_id' => $user->tel_id,
-                'text' => "⚠️ <b>خطا در دریافت اطلاعات سرویس</b>\n\nپنل مربوط به این سفارش پیدا نشد. لطفا با پشتیبانی در ارتباط باشید.",
-                'parse_mode' => 'HTML',
-            ]);
-        }
-
         $jdf = new Jdf();
         $expireTime = $order->expire_at ? $jdf->jdate('H:i:s d-m-Y', strtotime($order->expire_at)) : 'اطلاعات یافت نشد';
 
-        $data = getConfigDetail($order);
-        if ($data['status']) {
-            $totalGb = $data['data']['totalGb'];
-            $totalUsed = $data['data']['totalUsed'];
-            $left = $data['data']['left'];
-            $code = $data['data']['code'];
+        $configDetail = getConfigDetail($order);
+        $warning = '';
+        if ($configDetail['status'] ?? false) {
+            $lifecycle->applyConfigDetail($order, $configDetail);
+            $status = $lifecycle->statusMeta($order->fresh());
+            $totalGb = $configDetail['data']['totalGb'];
+            $totalUsed = $configDetail['data']['totalUsed'];
+            $left = $configDetail['data']['left'];
+            $code = $configDetail['data']['code'];
         } else {
-            return $this->sendTemporaryMessage($data['msg']);
+            $cached = is_array($detail['lifecycle'] ?? null) ? $detail['lifecycle'] : [];
+            $totalGb = $cached['total_gb'] ?? 'نامشخص';
+            $totalUsed = $cached['used_gb'] ?? 'نامشخص';
+            $left = $cached['left_gb'] ?? 'نامشخص';
+            $code = $detail['code'] ?? null;
+            $warning = "\n⚠️ <i>اطلاعات لحظه‌ای پنل در دسترس نیست.</i>\n";
+        }
+
+        if ($status['key'] === Orders::STATUS_INACTIVE) {
+            foreach ($buttons as $rowIndex => $row) {
+                $buttons[$rowIndex] = array_values(array_filter($row, function (array $button) {
+                    $callback = $button['callback_data'] ?? '';
+
+                    return !str_contains($callback, 'type=clientRenewOrder')
+                        && !str_contains($callback, 'type=clientBuyExtra');
+                }));
+            }
+            $buttons = array_values(array_filter($buttons));
         }
 
         $configCodeRaw = $code ?? '-';
@@ -3629,10 +3707,12 @@ $codeText
         $subUrlSafe = htmlspecialchars($subUrl, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
         $message = "<b>✅ جزئیات سفارش #{$order->id}</b>\n\n";
+        $message .= "<b>وضعیت:</b> {$status['icon']} {$status['label']}\n";
         $message .= "<b>حجم کل:</b> {$totalGb} گیگ\n";
         $message .= "<b>حجم مصرف شده:</b> {$totalUsed} گیگ\n";
         $message .= "<b>حجم باقی مانده:</b> {$left} گیگ\n";
         $message .= "<b>زمان پایان:</b> {$expireTime}\n\n";
+        $message .= $warning;
         if ($order->inbound_id != 0) {
             $configCode = htmlspecialchars($configCodeRaw, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             $message .= "<b>کد کانفیگ:</b>\n<code>{$configCode}</code>\n\n";
@@ -3646,7 +3726,8 @@ $codeText
          * caption در sendPhoto محدودیت دارد.
          * اگر متن طولانی شد، اول QR را می فرستیم، بعد متن کامل را با sendMessage ارسال می کنیم.
          */
-        $photo = "https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=" . urlencode($code);
+        $qrValue = $code ?: $subUrl;
+        $photo = "https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=" . urlencode($qrValue);
 
         if (mb_strlen(strip_tags($message), 'UTF-8') <= 900) {
             return $this->telegramSdk->sendPhoto([
@@ -3888,20 +3969,32 @@ $codeText
 
     protected function clientRenewOrder($data)
     {
+        $orderId = $data['id'] ?? null;
+        $order = Orders::where('id', $orderId)
+            ->where('user_id', $this->user->id)
+            ->first();
 
-        $orderid = $data['id'];
+        if (!$order) {
+            return $this->sendTemporaryMessage('سفارش مورد نظر یافت نشد.');
+        }
 
-        $order = Orders::find($orderid);
+        if (!app(OrderLifecycleService::class)->canRenew($order)) {
+            return $this->sendTemporaryMessage('❌ مهلت ۷ روزه تمدید این سفارش به پایان رسیده است.');
+        }
 
         $panel = Panels::find($order->panel_id);
+
+        if (!$panel) {
+            return $this->sendTemporaryMessage('پنل مربوط به سفارش یافت نشد.');
+        }
 
         $plans = Plans::where('type', $panel->panel_type)->where('status', 1)->orderby('id')->get();
 
         if (count($plans) > 0) {
             $pasarguardPercent = 0;
             if ($order->inbound_id == 0) {
-                $pasarguardDetail = $panel->detail;
-                $pasarguardPercent = $pasarguardDetail['percent'];
+                $pasarguardDetail = is_array($panel->detail) ? $panel->detail : [];
+                $pasarguardPercent = (float) ($pasarguardDetail['percent'] ?? 0);
             }
 
 
@@ -3955,14 +4048,32 @@ $codeText
         $orderId = $data['o_id'];
         $planId = $data['pl_id'];
         $user = $this->user;
-        $order = Orders::find($orderId);
+        $order = Orders::where('id', $orderId)
+            ->where('user_id', $user->id)
+            ->first();
         $plan = Plans::find($planId);
+
+        if (!$order || !$plan) {
+            return $this->sendTemporaryMessage('سفارش یا تعرفه مورد نظر یافت نشد.');
+        }
+
+        if (!app(OrderLifecycleService::class)->canRenew($order)) {
+            return $this->sendTemporaryMessage('❌ مهلت ۷ روزه تمدید این سفارش به پایان رسیده است.');
+        }
+
         $panel = Panels::find($order->panel_id);
+
+        if (!$panel) {
+            return $this->sendTemporaryMessage('پنل مربوط به سفارش یافت نشد.');
+        }
+        if ((string) $plan->type !== (string) $panel->panel_type) {
+            return $this->sendTemporaryMessage('تعرفه انتخاب‌شده مربوط به این سرویس نیست.');
+        }
 
         $pasarguardPercent = 0;
         if ($order->inbound_id == 0) {
-            $pasarguardDetail = $panel->detail;
-            $pasarguardPercent = $pasarguardDetail['percent'];
+            $pasarguardDetail = is_array($panel->detail) ? $panel->detail : [];
+            $pasarguardPercent = (float) ($pasarguardDetail['percent'] ?? 0);
         }
 
         if ($pasarguardPercent != 0) {
@@ -4017,7 +4128,7 @@ $codeText
         $keyboard[] = [
             [
                 'text' => '🔙 بازگشت',
-                'callback_data' => "type=clientRenewOrder|id={$orderId}",
+                'callback_data' => "type=clientBuyExtra|id={$orderId}",
             ],
         ];
         $data = [
@@ -4034,8 +4145,22 @@ $codeText
 
     protected function clientFinalRenew($data)
     {
-        $payment = Payment::find($data['id']);
+        $payment = Payment::find($data['id'] ?? null);
+        if (!$payment || (int) $payment->type !== 2) {
+            return $this->sendTemporaryMessage('تراکنش مورد نظر یافت نشد.');
+        }
+
         $targetUser = User::find($payment->user_id);
+        if (!$targetUser) {
+            return $this->sendTemporaryMessage('کاربر مربوط به تراکنش یافت نشد.');
+        }
+
+        $order = Orders::where('id', $payment->order_id)
+            ->where('user_id', $payment->user_id)
+            ->first();
+        if (!$order || !app(OrderLifecycleService::class)->canRenew($order)) {
+            return $this->sendTemporaryMessage('❌ مهلت ۷ روزه تمدید این سفارش به پایان رسیده است.');
+        }
 
         $adminMethod = 'toUser';
         $userMethod = 'toUser';
@@ -4080,10 +4205,12 @@ $codeText
             $userMethod = 'edit';
         }
 
-        $order = Orders::find($payment->order_id);
-
         $plan = Plans::find($payment->detail['plan-id']);
         $panel = Panels::find($order->panel_id);
+
+        if (!$targetUser || !$plan || !$panel) {
+            return $this->sendTemporaryMessage('اطلاعات لازم برای تمدید کامل نیست.');
+        }
 
         return $this->renewClient($panel, $order, $plan, $targetUser, $payment, $adminMethod, $channelId);
     }
@@ -4108,22 +4235,33 @@ $codeText
             }
             $result = $pasarGuard->getUserById($order->uid);
 
-            $expire = Carbon::parse($result['expire'])->addDays((int)$plan->days)->format('Y-m-d H:i:s');
+            $currentExpire = is_array($result) && !empty($result['expire'])
+                ? Carbon::parse($result['expire'])
+                : Carbon::parse($order->expire_at);
+            $renewalBase = $currentExpire->isFuture() ? $currentExpire : now();
+            $expire = $renewalBase->copy()->addDays((int) $plan->days)->format('Y-m-d H:i:s');
             $band = gbToByte($plan->bandwidth);
 
             $data = [
                 'status' => 'active',
                 'expire' => $expire,
-                'data_limit' => $result['data_limit'] + $band,
+                'data_limit' => (is_array($result) && is_numeric($result['data_limit'] ?? null)
+                    ? (float) $result['data_limit']
+                    : 0) + $band,
             ];
 
             $result = $pasarGuard->updateUserById($order->uid, $data);
 
-            if ($result['status'] != false) {
+            if (is_array($result) && ($result['status'] ?? true) !== false) {
 
                 $order->expire_at = $expire;
-                $order->status = 1;
+                $order->status = Orders::STATUS_ACTIVE;
                 $order->reminded = 0;
+                $orderDetail = is_array($order->detail) ? $order->detail : [];
+                $lifecycleDetail = is_array($orderDetail['lifecycle'] ?? null) ? $orderDetail['lifecycle'] : [];
+                unset($lifecycleDetail['remote_disabled'], $lifecycleDetail['cancelled_at']);
+                $orderDetail['lifecycle'] = $lifecycleDetail;
+                $order->detail = $orderDetail;
                 $order->save();
 
                 $caption = "تمدید سرویس با موفقیت انجام شد.";
@@ -4257,9 +4395,11 @@ $codeText
             $clientData = getClient($clientRequestData)['obj'][0];
             $band = gbToByte($plan->bandwidth);
 
-            $time = Carbon::createFromTimestampMs($clientData['expiryTime'])
-                ->timezone('Asia/Tehran')->format('Y-m-d H:i:s');
-            $expire = Carbon::parse($time)->addDays((int)$plan->days);
+            $currentExpire = !empty($clientData['expiryTime'])
+                ? Carbon::createFromTimestampMs($clientData['expiryTime'])->timezone('Asia/Tehran')
+                : Carbon::parse($order->expire_at);
+            $renewalBase = $currentExpire->isFuture() ? $currentExpire : now();
+            $expire = $renewalBase->copy()->addDays((int) $plan->days);
 
             $expiryTimestamp = $expire->timestamp * 1000;
 
@@ -4277,12 +4417,17 @@ $codeText
 
             $result = updateClient($result);
 
-            if ($result['success']) {
+            if (is_array($result) && ($result['success'] ?? false)) {
 
 
                 $order->expire_at = $expire;
-                $order->status = 1;
+                $order->status = Orders::STATUS_ACTIVE;
                 $order->reminded = 0;
+                $orderDetail = is_array($order->detail) ? $order->detail : [];
+                $lifecycleDetail = is_array($orderDetail['lifecycle'] ?? null) ? $orderDetail['lifecycle'] : [];
+                unset($lifecycleDetail['remote_disabled'], $lifecycleDetail['cancelled_at']);
+                $orderDetail['lifecycle'] = $lifecycleDetail;
+                $order->detail = $orderDetail;
                 $order->save();
 
                 $caption = "تمدید سرویس با موفقیت انجام شد.";
@@ -4403,8 +4548,17 @@ $codeText
 
     protected function clientBuyExtra($data)
     {
-        $order = Orders::find($data['id']);
+        $order = Orders::where('id', $data['id'] ?? null)
+            ->where('user_id', $this->user->id)
+            ->first();
+        if (!$order || !app(OrderLifecycleService::class)->canBuyExtra($order)) {
+            return $this->sendTemporaryMessage('خرید حجم برای این سفارش امکان‌پذیر نیست.');
+        }
         $panel = Panels::find($order->panel_id);
+
+        if (!$panel) {
+            return $this->sendTemporaryMessage('پنل مربوط به سفارش یافت نشد.');
+        }
 
         $service = Service::find($panel->panel_type);
         if (is_null($service)) {
@@ -4430,8 +4584,8 @@ $codeText
 
             $pasarguardPercent = 0;
             if ($order->inbound_id == 0) {
-                $pasarguardDetail = $panel->detail;
-                $pasarguardPercent = $pasarguardDetail['percent'];
+                $pasarguardDetail = is_array($panel->detail) ? $panel->detail : [];
+                $pasarguardPercent = (float) ($pasarguardDetail['percent'] ?? 0);
             }
 
             foreach ($list as $item) {
@@ -4485,19 +4639,30 @@ $codeText
         $extraId = $data['ex_id'];
         $user = $this->user;
 
-        $order = Orders::find($orderId);
+        $order = Orders::where('id', $orderId)
+            ->where('user_id', $user->id)
+            ->first();
+        if (!$order || !app(OrderLifecycleService::class)->canBuyExtra($order)) {
+            return $this->sendTemporaryMessage('خرید حجم برای این سفارش امکان‌پذیر نیست.');
+        }
         $panel = Panels::find($order->panel_id);
         $extra = ExtraBandwidth::find($extraId);
+        if (!$panel || !$extra) {
+            return $this->sendTemporaryMessage('اطلاعات خرید حجم کامل نیست.');
+        }
         $service = Service::find($extra->type);
         if (is_null($service)) {
             return $this->sendTemporaryMessage('سرویس مورد نظر یافت نشد');
+        }
+        if ((string) $service->id !== (string) $panel->panel_type) {
+            return $this->sendTemporaryMessage('حجم اضافی انتخاب‌شده مربوط به این سرویس نیست.');
         }
         $perGbPrice = $service->price_per_gb;
 
         $pasarguardPercent = 0;
         if ($order->inbound_id == 0) {
-            $pasarguardDetail = $panel->detail;
-            $pasarguardPercent = $pasarguardDetail['percent'];
+            $pasarguardDetail = is_array($panel->detail) ? $panel->detail : [];
+            $pasarguardPercent = (float) ($pasarguardDetail['percent'] ?? 0);
         }
 
         if ($pasarguardPercent != 0) {
@@ -4585,8 +4750,21 @@ $codeText
     protected function clientFinalExtra($data)
     {
 
-        $payment = Payment::find($data['id']);
+        $payment = Payment::find($data['id'] ?? null);
+        if (!$payment || (int) $payment->type !== 3) {
+            return $this->sendTemporaryMessage('تراکنش مورد نظر یافت نشد.');
+        }
         $targetUser = User::find($payment->user_id);
+        if (!$targetUser) {
+            return $this->sendTemporaryMessage('کاربر مربوط به تراکنش یافت نشد.');
+        }
+
+        $order = Orders::where('id', $payment->order_id)
+            ->where('user_id', $payment->user_id)
+            ->first();
+        if (!$order || !app(OrderLifecycleService::class)->canBuyExtra($order)) {
+            return $this->sendTemporaryMessage('خرید حجم برای این سفارش امکان‌پذیر نیست.');
+        }
 
         $adminMethod = 'toUser';
         $userMethod = 'toUser';
@@ -4632,10 +4810,12 @@ $codeText
             $userMethod = 'edit';
         }
 
-        $order = Orders::find($payment->order_id);
-
         $extra = ExtraBandwidth::find($payment->detail['extra-id']);
         $panel = Panels::find($order->panel_id);
+
+        if (!$targetUser || !$extra || !$panel) {
+            return $this->sendTemporaryMessage('اطلاعات لازم برای خرید حجم کامل نیست.');
+        }
 
         return $this->ExtraClient($panel, $order, $extra, $targetUser, $payment, $adminMethod, $channelId);
     }
@@ -4658,16 +4838,23 @@ $codeText
             }
             $result = $pasarGuard->getUserById($order->uid);
 
-            $expire = Carbon::parse($result['expire'])->format('Y-m-d H:i:s');
+            $expire = is_array($result) && !empty($result['expire'])
+                ? Carbon::parse($result['expire'])->format('Y-m-d H:i:s')
+                : Carbon::parse($order->expire_at)->format('Y-m-d H:i:s');
             $band = gbToByte($extra->name);
             $data = [
                 'status' => 'active',
                 'expire' => $expire,
-                'data_limit' => $result['data_limit'] + $band,
+                'data_limit' => (is_array($result) && is_numeric($result['data_limit'] ?? null)
+                    ? (float) $result['data_limit']
+                    : 0) + $band,
             ];
             $result = $pasarGuard->updateUserById($order->uid, $data);
 
-            if ($result['status'] != false) {
+            if (is_array($result) && ($result['status'] ?? true) !== false) {
+                $order->status = Orders::STATUS_ACTIVE;
+                $order->reminded = 0;
+                $order->save();
                 $caption = "خرید حجم سرویس با موفقیت انجام شد.";
 
                 $this->method = 'toUser';
@@ -4816,7 +5003,11 @@ $codeText
 
             $result = updateClient($result);
 
-            if ($result['success']) {
+            if (is_array($result) && ($result['success'] ?? false)) {
+
+                $order->status = Orders::STATUS_ACTIVE;
+                $order->reminded = 0;
+                $order->save();
 
                 $caption = "خرید حجم سرویس با موفقیت انجام شد.";
 
@@ -8882,7 +9073,8 @@ $codeText
     {
         $page = $type['page'] ?? 1;
 
-        $list = Countries::orderByDesc('id')
+        $list = Countries::orderByRaw("CASE WHEN status = '1' THEN 0 ELSE 1 END")
+            ->orderByDesc('id')
             ->with('Service')
             ->paginate(10, ['*'], 'page', $page);
 
@@ -8894,13 +9086,11 @@ $codeText
         $row = [];
         foreach ($list as $country) {
 
-            $status = ((int)$country->status === 1)
-                ? '🟢 فعال'
-                : '🔴 غیرفعال';
+            $status = ((int)$country->status === 1) ? '🟢' : '🔴';
 
             $name = !is_null($country->Service) ? $country->Service->name : '-';
             $row[] = [
-                'text' => "{$country->name} | {$name} | {$status}",
+                'text' => "{$status} {$country->name} | {$name}",
                 'callback_data' => "type=adminCountriesDetail|id={$country->id}",
             ];
             if (count($row) === 2) {
@@ -10940,6 +11130,8 @@ $codeText
         $filter = $data['filter'] ?? null;
         $search = $data['search'] ?? null;
         $userId = $data['userId'] ?? null;
+        $lifecycle = app(OrderLifecycleService::class);
+        $lifecycle->reconcileTimeStatuses($userId ? (int) $userId : null);
 
         $query = Orders::query();
 
@@ -10976,7 +11168,7 @@ $codeText
             $query->where('status', $filter);
         }
 
-        $orders = $query
+        $orders = $lifecycle->orderByStatus($query)
             ->orderByDesc('id')
             ->paginate(20, ['*'], 'page', $page);
 
@@ -11010,7 +11202,8 @@ $codeText
 
         foreach ($orders as $order) {
 
-            $btnText = "#" . $order->id;
+            $status = $lifecycle->statusMeta($order);
+            $btnText = "{$status['icon']} #{$order->id}";
             $row[] = [
                 'text' => $btnText,
                 'callback_data' => "type=adminOrderSingle|id={$order->id}|search=$search|userId=$userId"
@@ -11144,10 +11337,6 @@ $codeText
 
         $order = Orders::where('id', $id)
             ->first();
-
-        $targetUser = User::find($order->user_id);
-
-        $userId = $order->user_id;
         if (is_null($order)) {
             return $this->telegramSdk->sendMessage([
                 'chat_id' => $this->chatId,
@@ -11155,6 +11344,11 @@ $codeText
                 'parse_mode' => 'HTML',
             ]);
         }
+
+        $targetUser = User::find($order->user_id);
+        $userId = $order->user_id;
+        $lifecycle = app(OrderLifecycleService::class);
+        $lifecycle->refreshTimeStatus($order);
 
         $detail = is_array($order->detail)
             ? $order->detail
@@ -11213,15 +11407,21 @@ $codeText
 
         $jdf = new Jdf();
 
-        $data = getConfigDetail($order);
-        if ($data['status']) {
-            $totalGb = $data['data']['totalGb'];
-            $totalUsed = $data['data']['totalUsed'];
-            $left = $data['data']['left'];
-            $code = $data['data']['code'];
-            $expireTime = $data['data']['code'] ? $jdf->jdate('H:i:s d-m-Y', strtotime($data['data']['expire'])) : $jdf->jdate('H:i:s d-m-Y', strtotime($order->expire_at));
+        $configDetail = getConfigDetail($order);
+        if ($configDetail['status'] ?? false) {
+            $lifecycle->applyConfigDetail($order, $configDetail);
+            $totalGb = $configDetail['data']['totalGb'];
+            $totalUsed = $configDetail['data']['totalUsed'];
+            $left = $configDetail['data']['left'];
+            $code = $configDetail['data']['code'];
+            $expireTime = $configDetail['data']['code'] ? $jdf->jdate('H:i:s d-m-Y', strtotime($configDetail['data']['expire'])) : $jdf->jdate('H:i:s d-m-Y', strtotime($order->expire_at));
         } else {
-            return $this->sendTemporaryMessage($data['msg']);
+            $cached = is_array($detail['lifecycle'] ?? null) ? $detail['lifecycle'] : [];
+            $totalGb = $cached['total_gb'] ?? 'نامشخص';
+            $totalUsed = $cached['used_gb'] ?? 'نامشخص';
+            $left = $cached['left_gb'] ?? 'نامشخص';
+            $code = $detail['code'] ?? null;
+            $expireTime = $order->expire_at ? $jdf->jdate('H:i:s d-m-Y', strtotime($order->expire_at)) : 'نامشخص';
         }
 
 
@@ -11231,6 +11431,8 @@ $codeText
 //        $subUrlSafe = htmlspecialchars($subUrl, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
         $message = "<b>✅ جزئیات سفارش #{$order->id}</b>\n\n";
+        $status = $lifecycle->statusMeta($order->fresh());
+        $message .= "<b>وضعیت:</b> {$status['icon']} {$status['label']}\n";
         $message .= "<b>ریمارک:</b> {$order->remark}\n";
         $message .= "<b>حجم کل:</b> {$totalGb} گیگ\n";
         $message .= "<b>حجم مصرف شده:</b> {$totalUsed} گیگ\n";
@@ -11238,8 +11440,8 @@ $codeText
         $message .= "<b>زمان پایان:</b> {$expireTime}\n\n";
 
         $message .= "<b>✅اطلاعات کاربر</b>\n\n";
-        $message .= "<b>نام کاربری:</b> {$targetUser->username}\n";
-        $message .= "<b>آیدی تلگرام:</b> {$targetUser->tel_id}\n";
+        $message .= "<b>نام کاربری:</b> " . ($targetUser?->username ?? 'نامشخص') . "\n";
+        $message .= "<b>آیدی تلگرام:</b> " . ($targetUser?->tel_id ?? 'نامشخص') . "\n";
 
         $data = [
             'chat_id' => $this->chatId,

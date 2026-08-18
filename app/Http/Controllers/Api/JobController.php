@@ -9,6 +9,7 @@ use App\Models\HegzaUser;
 use App\Models\Message;
 use App\Models\TelegramData;
 use App\Models\User;
+use App\Services\OrderLifecycleService;
 use App\Services\Telegram;
 use Illuminate\Http\Request;
 
@@ -106,9 +107,9 @@ class JobController extends Controller
     }
 
 
-    public function checkUserBw()
+    public function checkUserBw(OrderLifecycleService $lifecycle)
     {
-
+        return response()->json($lifecycle->synchronizeAll());
     }
 
     public function remindToRenewOrder()
@@ -117,9 +118,11 @@ class JobController extends Controller
     }
 
 
-    public function expireOrders()
+    public function expireOrders(OrderLifecycleService $lifecycle)
     {
+        $lifecycle->reconcileTimeStatuses();
 
+        return response()->json(['ok' => true]);
     }
     public function ramzinoFailCallback(Request $request)
     {

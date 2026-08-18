@@ -393,10 +393,10 @@ class WpSyncService
     {
         return match ((string) $status) {
             '1', 'created', 'active' => 'فعال',
-            '0', 'pending', 'waiting_review', 'review' => 'در انتظار بررسی',
-            'on_hold' => 'در انتظار اتصال',
-            'expired', '-1' => 'منقضی شده',
-            'disabled', '-2' => 'غیرفعال',
+            '0', 'data_exhausted', 'limited' => 'اتمام حجم',
+            '2', 'suspended', 'expired', 'on_hold' => 'اتمام زمان (معلق)',
+            'inactive', 'cancelled', 'disabled', '-1', '-2' => 'غیرفعال',
+            'pending', 'waiting_review', 'review' => 'در انتظار بررسی',
             'deleted' => 'حذف شده',
             default => (string) $status,
         };
@@ -708,6 +708,9 @@ class WpSyncService
     {
         $order = Orders::where('id', $orderId)->where('user_id', $user->id)->first();
         if (!$order) return ['ok' => false, 'message' => 'bot_order_not_found'];
+        if (!app(OrderLifecycleService::class)->canRenew($order)) {
+            return ['ok' => false, 'message' => 'renewal_grace_period_ended'];
+        }
 
         $days = max(1, (int) ($payload['days'] ?? 30));
         $gb = (int) ($payload['gb'] ?? $payload['total_gb'] ?? 0);
@@ -736,6 +739,9 @@ class WpSyncService
                 $updateParams['data_limit_reset_strategy'] = $payload['data_limit_reset_strategy'] ?? 'no_reset';
             }
             $pgResponse = $pg->updateUserById($order->uid, $updateParams);
+            if (!is_array($pgResponse) || ($pgResponse['status'] ?? true) === false) {
+                return ['ok' => false, 'message' => 'pasarguard_renew_failed', 'pasarguard' => $pgResponse];
+            }
             $configResponse = $pg->getUserConfig($order->uid, $payload['client_type'] ?? 'links');
             if (is_array($configResponse) && !empty($configResponse['status']) && !empty($configResponse['body'])) {
                 $detail['links'] = preg_split('/\r\n|\r|\n/', trim((string) $configResponse['body'])) ?: [];
@@ -745,11 +751,15 @@ class WpSyncService
         $detail['renewed_from_wp'] = true;
         $detail['renewed_at'] = now()->toDateTimeString();
         $detail['last_renew_days'] = $days;
+        $lifecycleDetail = is_array($detail['lifecycle'] ?? null) ? $detail['lifecycle'] : [];
+        unset($lifecycleDetail['remote_disabled'], $lifecycleDetail['cancelled_at']);
+        $detail['lifecycle'] = $lifecycleDetail;
         if ($gb > 0) $detail['last_renew_gb'] = $gb;
         if ($pgResponse !== null) $detail['last_pasarguard_response'] = $pgResponse;
 
         $order->expire_at = $newExpire;
-        $order->status = (string) ($payload['status'] ?? 'active');
+        $order->status = Orders::STATUS_ACTIVE;
+        $order->reminded = 0;
         $order->detail = $detail;
         $order->save();
 
@@ -1017,7 +1027,7 @@ class WpSyncService
         return match ($type) {
             'services' => [$this->searchQuery(Service::query(), $search, ['name', 'id'])->orderByDesc('id'), fn ($i) => ['id' => $i->id, 'name' => $i->name, 'status' => (string) $i->status, 'price_per_gb' => (int) ($i->price_per_gb ?? 0), 'created_at' => optional($i->created_at)->toDateTimeString()]],
             'plans' => [$this->searchQuery(Plans::query(), $search, ['name', 'type', 'id'])->orderBy('id'), fn ($i) => ['id' => $i->id, 'name' => $i->name, 'bandwidth' => $i->bandwidth, 'days' => $i->days, 'price' => (int) $i->price, 'discount' => (int) $i->discount, 'type' => $i->type, 'status' => (string) $i->status]],
-            'countries' => [$this->searchQuery(Countries::query(), $search, ['name', 'type', 'id'])->orderByDesc('id'), fn ($i) => ['id' => $i->id, 'name' => $i->name, 'type' => $i->type, 'status' => (string) $i->status]],
+            'countries' => [$this->searchQuery(Countries::query(), $search, ['name', 'type', 'id'])->orderByRaw("CASE WHEN status = '1' THEN 0 ELSE 1 END")->orderByDesc('id'), fn ($i) => ['id' => $i->id, 'name' => $i->name, 'type' => $i->type, 'status' => (string) $i->status]],
             'panels' => [$this->searchQuery(Panels::query(), $search, ['name', 'url', 'system_type', 'id'])->orderByDesc('id'), fn ($i) => $this->formatPanel($i)],
             'inbounds' => [$this->searchQuery(Inbounds::query(), $search, ['remark', 'port', 'id'])->orderByDesc('id'), fn ($i) => $this->formatInbound($i)],
             'extra_bandwidths' => [$this->searchQuery(ExtraBandwidth::query(), $search, ['name', 'type', 'id'])->orderByDesc('id'), fn ($i) => ['id' => $i->id, 'name' => $i->name, 'type' => $i->type, 'status' => (string) $i->status, 'discount' => (int) $i->discount]],

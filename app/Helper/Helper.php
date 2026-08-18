@@ -988,18 +988,47 @@ function getConfigDetail($order)
         ]);
         $result = $pasarGuard->getUserById($order->uid);
 
-        $totalGb = byteToGb($result['data_limit']);
-        $totalUsed = byteToGb($result['used_traffic']);
-        $expire = Carbon::parse($result['expire'])->format('Y-m-d H:i:s');
+        if (!is_array($result) || ($result['status'] ?? null) === false) {
+            return [
+                'status' => false,
+                'msg' => '⚠️ اطلاعات سرویس از پنل دریافت نشد.',
+                'provider_response' => $result,
+            ];
+        }
+
+        $totalBytes = is_numeric($result['data_limit'] ?? null) ? (float) $result['data_limit'] : 0;
+        $usedBytes = is_numeric($result['used_traffic'] ?? null) ? (float) $result['used_traffic'] : 0;
+        $totalGb = byteToGb($totalBytes);
+        $totalUsed = byteToGb($usedBytes);
+        $expire = optional($order->expire_at)->format('Y-m-d H:i:s');
+        if (!empty($result['expire'])) {
+            try {
+                $expire = Carbon::parse($result['expire'])->format('Y-m-d H:i:s');
+            } catch (Throwable) {
+                // Keep the local expiry when the provider returns an invalid date.
+            }
+        }
         $left = $totalGb - $totalUsed;
-        $code = $pasarGuard->getUserConfig($order->uid)['body'];
+        $configResult = $pasarGuard->getUserConfig($order->uid);
+        $code = is_array($configResult) && ($configResult['status'] ?? false)
+            ? ($configResult['body'] ?? null)
+            : ($order->detail['code'] ?? null);
+        $providerStatus = $result['status'] ?? null;
     } else {
         $result = clientGetSanaieSinlgeDetail($panel, $order);
+        if (!($result['remote_available'] ?? false)) {
+            return [
+                'status' => false,
+                'msg' => '⚠️ اطلاعات سرویس از پنل دریافت نشد.',
+                'provider_response' => $result,
+            ];
+        }
         $totalGb = $result['totalGb'];
         $totalUsed = $result['totalUsed'];
         $left = $result['left'];
-        $code = $order->detail['code'];
+        $code = $order->detail['code'] ?? null;
         $expire = $order->expire_at;
+        $providerStatus = $result['provider_status'] ?? null;
     }
     $left = $left > 0 ? $left : 0;
     return [
@@ -1010,6 +1039,8 @@ function getConfigDetail($order)
             'left' => $left,
             'expire' => $expire,
             'code' => $code,
+            'provider_status' => $providerStatus,
+            'remote_available' => true,
         ]
     ];
 }
@@ -1020,6 +1051,8 @@ function clientGetSanaieSinlgeDetail($panel, $order)
     $totalUsed = 'اطلاعات یافت نشد';
     $left = 'اطلاعات یافت نشد';
     $expireTime = 'اطلاعات یافت نشد';
+    $providerStatus = null;
+    $remoteAvailable = false;
 
     $loginData = [
         'username' => $panel->username,
@@ -1055,6 +1088,9 @@ function clientGetSanaieSinlgeDetail($panel, $order)
                 $expireTime = Carbon::createFromTimestampMs($client['expiryTime'])
                     ->format('Y-m-d H:i');
             }
+
+            $providerStatus = ($client['enable'] ?? true) ? 'active' : 'disabled';
+            $remoteAvailable = true;
         }
     }
 
@@ -1063,7 +1099,8 @@ function clientGetSanaieSinlgeDetail($panel, $order)
         'totalUsed' => $totalUsed,
         'left' => $left,
         'expireTime' => $expireTime,
+        'provider_status' => $providerStatus,
+        'remote_available' => $remoteAvailable,
     ];
 
 }
-
