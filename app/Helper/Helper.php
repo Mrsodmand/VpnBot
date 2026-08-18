@@ -304,7 +304,7 @@ if (!function_exists('headTitle')) {
     function headTitle($title)
     {
 //        $text = "━━━━━━━━━━━━━━━━━━\n";
-        $text = "<b>{$title} </b>\n\n";
+        $text = '<b>' . trim($title) . "</b>\n";
 //        $text .= "━━━━━━━━━━━━━━━━━━\n";
         return $text;
     }

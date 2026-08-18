@@ -1751,8 +1751,7 @@ class TelegramBotController extends Controller
         $list = Plans::where('type', $service_id)->where('status', 1)->orderby('id')->paginate(10);
 
         $text = headTitle("🌍انتخاب تعرفه سرویس");
-        $text .= "
-📦 <b>نوع سرویس:</b>
+        $text .= "📦 <b>نوع سرویس:</b>
 <code>{$service->name}</code>
 🌐 <b>کشور:</b>
 <code>{$countryName}</code>
@@ -2052,8 +2051,7 @@ class TelegramBotController extends Controller
         $price = number_format($payment->price);
 
         $text = headTitle("🌍 انتخاب نحوه پرداخت");
-        $text .= "
-📦 <b>نوع سرویس:</b> <code>{$service->name}</code>
+        $text .= "📦 <b>نوع سرویس:</b> <code>{$service->name}</code>
 🌐 <b>کشور:</b> <code>{$countryName}</code>
 🌐 <b>تعرفه:</b> <code>{$plan->name}</code>
 🌐 <b>تعداد:</b><code>{$count} عدد</code>
@@ -2277,7 +2275,7 @@ class TelegramBotController extends Controller
 
         $this->updatePath('sendCartBeCartReceipt');
         $text = headTitle('💳 پرداخت کارت به کارت');
-        $text .= "\n لطفا عکس رسید خود را ارسال کنید. \n";
+        $text .= "لطفا عکس رسید خود را ارسال کنید. \n";
 
         $buttons[] = [
             [
@@ -3843,8 +3841,7 @@ $codeText
             }
         }
         $text = headTitle('تمدید سرویس');
-        $text .= "
-💡 لطفاً یکی از تعرفه‌های زیر را انتخاب کنید:";
+        $text .= "💡 لطفاً یکی از تعرفه‌های زیر را انتخاب کنید:";
 
         $keyboard[] = $this->clientFooterButtons("type=clientSingleOrder|id={$order->id}");
         $data = [
@@ -4385,8 +4382,7 @@ $codeText
         }
 
         $text = headTitle("خرید حجم اضافه");
-        $text .= "
-💡 لطفاً یکی از گزینه زیر را انتخاب کنید:";
+        $text .= "💡 لطفاً یکی از گزینه زیر را انتخاب کنید:";
 
 
         $allowSellExtra = Setting::where('key', 'extra')->first();
@@ -4514,9 +4510,7 @@ $codeText
 
         $text = headTitle("💳 انتخاب روش پرداخت");
 
-        $text .= "
-
-🛒 <b>خلاصه سفارش شما</b>
+        $text .= "🛒 <b>خلاصه سفارش شما</b>
 
 📦 <b>نوع سرویس:</b>
 خرید حجم
@@ -5042,8 +5036,7 @@ $codeText
         ];
 
         $text = headTitle("👑 پنل مدیریت ربات");
-        $text .= "
-⚙️ مدیریت کاربران، سفارشات، سرویس‌ها،
+        $text .= "⚙️ مدیریت کاربران، سفارشات، سرویس‌ها،
 پنل‌ها، تراکنش‌ها و تنظیمات سیستم
 
 📌 لطفاً یکی از گزینه‌های زیر را انتخاب کنید.
@@ -5118,8 +5111,7 @@ $codeText
         */
 
         $text = headTitle("👥مدیریت کاربران");
-        $text .= "
-🔎 جستجو بر اساس:
+        $text .= "🔎 جستجو بر اساس:
 • آیدی تلگرام
 • نام کاربری
 • نام و نام خانوادگی
@@ -5254,8 +5246,7 @@ $codeText
     protected function adminUserSearch($type)
     {
         $text = headTitle("👥جستجو کاربران");
-        $text .= "
-🔎 جستجو بر اساس:
+        $text .= "🔎 جستجو بر اساس:
 • آیدی تلگرام
 • نام کاربری
 • نام و نام خانوادگی
@@ -7588,8 +7579,7 @@ $codeText
         $buttons[] = $this->adminFooterButtons();
 
         $text = headTitle('⚙️ تنظیمات سیستم');
-        $text .= "
-🔧 مدیریت تنظیمات ثبت‌نام، فروش،
+        $text .= "🔧 مدیریت تنظیمات ثبت‌نام، فروش،
 پرداخت، رفرال و امکانات ربات
 
 📌 لطفاً یکی از گزینه‌های زیر را انتخاب کنید.
@@ -10240,7 +10230,7 @@ $codeText
         $text = headTitle('لیست اینبوند های ثنایی');
 
         if ($list->count() == 0) {
-            $text .= "\n❌ هیچ اینبوندی یافت نشد.";
+            $text .= "❌ هیچ اینبوندی یافت نشد.";
         }
 
         /*
@@ -10353,7 +10343,7 @@ $codeText
         $text = headTitle('لیست گروه های پاسارگاد');
 
         if ($list->count() == 0) {
-            $text .= "\n❌ هیچ اینبوندی یافت نشد.";
+            $text .= "❌ هیچ اینبوندی یافت نشد.";
         }
 
         $keyboard = [];
@@ -10992,8 +10982,7 @@ $codeText
             ->paginate(20, ['*'], 'page', $page);
 
         $text = headTitle("👥 لیست سفارشات");
-        $text .= "
-🔎 جستجو بر اساس:
+        $text .= "🔎 جستجو بر اساس:
 • آیدی سفارش
 • نام کاربری
 • ریمارک
@@ -11116,8 +11105,7 @@ $codeText
     protected function adminOrderSearch($type)
     {
         $text = headTitle("👥جستجو سفارشات");
-        $text .= "
-🔎 جستجو بر اساس:
+        $text .= "🔎 جستجو بر اساس:
 • آیدی سفارش
 • نام کاربری
 • ریمارک
