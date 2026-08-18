@@ -191,7 +191,8 @@ class TelegramBotController extends Controller
                 return $this->clientSelectPlan($type);
                 break;
             case 'clientSelectExtra':
-                return $this->clientSelectExtra($type);
+                // Old Telegram messages may still point to the removed extra-volume step.
+                return $this->clientSelectCount($type);
                 break;
             case 'clientSelectCount':
             case 'CSC':
@@ -1747,13 +1748,6 @@ class TelegramBotController extends Controller
             $countryName = $country->name;
         }
 
-        $allowSellExtra = Setting::where('key', 'extra')->first();
-        if (!is_null($allowSellExtra) && $allowSellExtra->value == 1) {
-            $allowSellExtra = true;
-        } else {
-            $allowSellExtra = false;
-        }
-
         $list = Plans::where('type', $service_id)->where('status', 1)->orderby('id')->paginate(10);
 
         $text = headTitle("🌍انتخاب تعرفه سرویس");
@@ -1766,11 +1760,6 @@ class TelegramBotController extends Controller
 
         $keyboard = [];
         $row = [];
-
-        $path = "clientSelectCount";
-        if ($allowSellExtra) {
-            $path = "clientSelectExtra";
-        }
 
         if (count($list) > 0) {
             $pasarguardPercent = 0;
@@ -1807,7 +1796,7 @@ class TelegramBotController extends Controller
                 $keyboard[] = [
                     [
                         'text' => "{$name} | $price T $discount",
-                        'callback_data' => "type=$path|s_id={$service->id}|co_id={$country?->id}|pl_id={$item->id}|p_id={$pasarGuard_id}",
+                        'callback_data' => "type=clientSelectCount|s_id={$service->id}|co_id={$country?->id}|pl_id={$item->id}|p_id={$pasarGuard_id}",
                     ],
                 ];
             }
@@ -1833,123 +1822,12 @@ class TelegramBotController extends Controller
 
     }
 
-    protected function clientSelectExtra($type)
-    {
-        $service_id = $type['s_id'];
-        $country_id = $type['co_id'];
-        $plan_id = $type['pl_id'];
-        $pasarGuard_id = $type['p_id'] ?? 0;
-        $page = $type['page'] ?? 1;
-
-        $service = Service::find($service_id);
-        if (is_null($service)) {
-            return $this->sendTemporaryMessage('سرویس مورد نظر یافت نشد');
-        }
-
-        $country = Countries::find($country_id);
-        if (is_null($country) && $pasarGuard_id == 0) {
-            return $this->sendTemporaryMessage('کشور مورد نظر یافت نشد');
-        }
-        if ($pasarGuard_id != 0) {
-            $countryName = 'همه کشور ها';
-        } else {
-            $countryName = $country->name;
-        }
-
-        $plan = Plans::find($plan_id);
-        if (is_null($plan)) {
-            return $this->sendTemporaryMessage('تعرفه مورد نظر یافت نشد');
-        }
-
-        $allowSellExtra = Setting::where('key', 'extra')->first();
-        if (!is_null($allowSellExtra) && $allowSellExtra->value != 1) {
-            return $this->home();
-        }
-
-        $text = headTitle("🌍 انتخاب حجم اضافه ");
-        $text .= "
-📦 <b>نوع سرویس:</b>
-<code>{$service->name}</code>
-🌐 <b>کشور:</b>
-<code>{$countryName}</code>
-🌐 <b>تعرفه:</b>
-<code>{$plan->name} | حجم: {$plan->bandwidth} GB </code>
-💡 لطفاً یکی از گزینه زیر را انتخاب کنید:";
-
-        $list = ExtraBandwidth::where('type', $service_id)->where('status', 1)->paginate(20);
-        $perGbPrice = $service->price_per_gb;
-
-        $keyboard = [];
-        $row = [];
-        if (count($list) > 0) {
-            $pasarguardPercent = 0;
-            if ($pasarGuard_id != 0) {
-                $pasarguard = Panels::find($pasarGuard_id);
-                $pasarguardDetail = $pasarguard->detail;
-                $pasarguardPercent = $pasarguardDetail['percent'];
-            }
-
-            foreach ($list as $item) {
-                $name = !is_null($item->name) ? $item->name : 'بدون نام';
-
-
-                if ($pasarguardPercent != 0) {
-                    $basePrice = $item->name * $perGbPrice;
-                    $percentPrice = ($basePrice / 100) * $pasarguardPercent;
-                    $planPrice = $basePrice + $percentPrice;
-                    if ($item->discount != 0) {
-                        $discount = ($planPrice / 100) * $item->discount;
-                        $planPrice = $planPrice - $discount;
-                    }
-                    $price = number_format($planPrice);
-                } else {
-                    $price = calculateExtraDiscount($item, $perGbPrice);
-                    $price = number_format($price['price']);
-                }
-
-
-                $row[] = [
-                    'text' => "{$name} GB | {$price} تومان",
-                    'callback_data' => "type=clientSelectCount|s_id={$service_id}|co_id={$country?->id}|pl_id={$plan_id}|ex_id=$item->id|p_id={$pasarGuard_id}",
-                ];
-                if (count($row) === 2) {
-                    $keyboard[] = $row;
-                    $row = [];
-                }
-            }
-
-            if (!empty($row)) {
-                $keyboard[] = $row;
-            }
-        }
-
-        $pagination = $this->paginationFooterButton($list, $page, "clientSelectPlan|si_id=$service_id|co_id=$country_id|p_id={$pasarGuard_id}");
-
-        if (!is_null($pagination)) {
-            $keyboard[] = $pagination;
-        }
-
-        $keyboard[] = $this->clientFooterButtons("type=clientSelectPlan|s_id=$service_id|co_id=$country_id|p_id={$pasarGuard_id}");
-        $data = [
-            'chat_id' => $this->chatId,
-            'text' => trim($text),
-            'parse_mode' => 'HTML',
-            'reply_markup' => json_encode([
-                'inline_keyboard' => $keyboard
-            ]),
-        ];
-
-        return $this->sendMessage($data, 'message');
-    }
-
     protected function clientSelectCount($type)
     {
         $service_id = $type['s_id'];
         $country_id = $type['co_id'];
         $plan_id = $type['pl_id'];
         $pasarGuard_id = $type['p_id'] ?? null;
-        $extra = $type['ex_id'] ?? null;
-        $page = $type['page'] ?? 1;
         $count = $type['cu'] ?? 1;
 
         if ($count <= 0) {
@@ -1980,21 +1858,6 @@ class TelegramBotController extends Controller
         if (is_null($plan)) {
             return $this->sendTemporaryMessage('تعرفه مورد نظر یافت نشد');
         }
-        $extraText = null;
-
-        $path = "clientSelectPlan";
-        if (!empty($extra)) {
-            $extra = ExtraBandwidth::find($extra);
-            if (is_null($plan)) {
-                return $this->sendTemporaryMessage('حجم اضافه مورد نظر یافت نشد');
-            }
-            $extraPrice = number_format(calculateExtraDiscount($extra, $service->price_per_gb)['price']);
-            $extraText = "🌐 <b>حجم اضافه انتخاب شده انتخاب‌شده:</b>
-<code>{$extra->name} GB | مبلغ:{$extraPrice} تومان</code>";
-            $extra = $extra->id;
-            $path = "clientSelectExtra";
-        }
-
         $text = headTitle("🌍انتخاب تعداد");
         $text .= "📦 <b>نوع سرویس:</b>
 <code>{$service->name}</code>
@@ -2002,7 +1865,6 @@ class TelegramBotController extends Controller
 <code>{$countryName}</code>
 🌐 <b>تعرفه:</b>
 <code>{$plan->name} | حجم: {$plan->bandwidth} GB</code>
-{$extraText}
 💡 لطفاً تعداد را مشخص کنید:";
 
         $decrement = max(1, $count - 1);
@@ -2013,7 +1875,7 @@ class TelegramBotController extends Controller
                 'text' => '➖',
                 'callback_data' => $count <= 1
                     ? 'ignore'
-                    : "type=CSC|s_id={$service_id}|co_id={$country?->id}|pl_id={$plan_id}|ex_id={$extra}|cu={$decrement}|p_id={$pasarGuard_id}",
+                    : "type=CSC|s_id={$service_id}|co_id={$country?->id}|pl_id={$plan_id}|cu={$decrement}|p_id={$pasarGuard_id}",
                 'style' => 'danger',
             ],
             [
@@ -2024,7 +1886,7 @@ class TelegramBotController extends Controller
                 'text' => '➕',
                 'callback_data' => $count >= 10
                     ? 'ignore'
-                    : "type=CSC|s_id={$service_id}|co_id={$country?->id}|pl_id={$plan_id}|ex_id={$extra}|cu={$increment}|p_id={$pasarGuard_id}",
+                    : "type=CSC|s_id={$service_id}|co_id={$country?->id}|pl_id={$plan_id}|cu={$increment}|p_id={$pasarGuard_id}",
                 'style' => 'success',
             ],
         ];
@@ -2032,11 +1894,11 @@ class TelegramBotController extends Controller
         $keyboard[] = [
             [
                 'text' => 'مرحله بعد',
-                'callback_data' => "type=CLN|s_id={$service_id}|co_id={$country?->id}|pl_id={$plan_id}|ex_id={$extra}|cu={$count}|p_id={$pasarGuard_id}",
+                'callback_data' => "type=CLN|s_id={$service_id}|co_id={$country?->id}|pl_id={$plan_id}|cu={$count}|p_id={$pasarGuard_id}",
             ],
             [
                 'text' => '🔙 بازگشت',
-                'callback_data' => "type=$path|s_id=$service_id|co_id=$country_id|pl_id=$plan_id|ex_id=$extra|p_id={$pasarGuard_id}",
+                'callback_data' => "type=clientSelectPlan|s_id=$service_id|co_id=$country_id|p_id={$pasarGuard_id}",
             ],
         ];
         $data = [
@@ -2056,7 +1918,6 @@ class TelegramBotController extends Controller
         $service_id = $type['s_id'];
         $country_id = $type['co_id'];
         $plan_id = $type['pl_id'];
-        $extra = $type['ex_id'] ?? null;
         $pasarGuard_id = $type['p_id'] ?? 0;
         $count = $type['cu'] ?? 1;
 
@@ -2068,7 +1929,7 @@ class TelegramBotController extends Controller
         $tel_detail['order-country-id'] = $country_id;
         $tel_detail['order-plan-id'] = $plan_id;
         $tel_detail['order-pasarguard-id'] = $pasarGuard_id;
-        $tel_detail['order-extra'] = $extra;
+        $tel_detail['order-extra'] = null;
         $tel_detail['order-count'] = $count;
 
         $user->tel_detail = $tel_detail;
@@ -2089,7 +1950,7 @@ class TelegramBotController extends Controller
         $keyboard[] = [
             [
                 'text' => '🔙 بازگشت',
-                'callback_data' => "type=clientSelectCount|s_id={$service_id}|co_id={$country_id}|pl_id={$plan_id}|ex_id={$extra}|cu={$count}",
+                'callback_data' => "type=clientSelectCount|s_id={$service_id}|co_id={$country_id}|pl_id={$plan_id}|cu={$count}|p_id={$pasarGuard_id}",
             ],
         ];;
         $data = [
@@ -2109,7 +1970,6 @@ class TelegramBotController extends Controller
         $user = $this->user;
         $tel_detail = $user->tel_detail;
         $name = $type['name'] ?? $this->text;
-        $extraPrice = 0;
         if (!preg_match('/^[a-zA-Z]+$/', $name)) {
             return $this->sendTemporaryMessage(
                 '❌ نام فقط باید شامل حروف انگلیسی باشد.'
@@ -2119,7 +1979,7 @@ class TelegramBotController extends Controller
         $service_id = $tel_detail['order-service-id'];
         $country_id = $tel_detail['order-country-id'];
         $plan_id = $tel_detail['order-plan-id'];
-        $extra = $tel_detail['order-extra'];
+        $extra = null;
         $count = $tel_detail['order-count'];
         $pasarGuard_id = $tel_detail['order-pasarguard-id'] ?? 0;
 
@@ -2142,9 +2002,6 @@ class TelegramBotController extends Controller
         if (is_null($plan)) {
             return $this->sendTemporaryMessage('تعرفه مورد نظر یافت نشد');
         }
-        $extraText = null;
-
-
         $pasarguardPercent = 0;
         if ($pasarGuard_id != 0) {
             $pasarguard = Panels::find($pasarGuard_id);
@@ -2153,54 +2010,17 @@ class TelegramBotController extends Controller
         }
 
         if ($pasarguardPercent != 0) {
-            if (!empty($extra)) {
-                $extra = ExtraBandwidth::find($extra);
-                if (is_null($extra)) {
-                    return $this->sendTemporaryMessage('حجم اضافه مورد نظر یافت نشد');
-                }
-                $basePrice = $extra->name * $service->price_per_gb;
-                $percentPrice = ($basePrice / 100) * $pasarguardPercent;
-                $planPrice = $basePrice + $percentPrice;
-                if ($extra->discount != 0) {
-                    $discount = ($planPrice / 100) * $extra->discount;
-                    $extraPrice = $planPrice - $discount;
-                }
-                $extra = $extra->id;
+            $basePrice = $plan->price;
+            $percentPrice = ($basePrice / 100) * $pasarguardPercent;
+            $planPrice = $basePrice + $percentPrice;
+            if ($plan->discount != 0) {
+                $discount = ($planPrice / 100) * $plan->discount;
+                $planPrice = $planPrice - $discount;
             }
-
-
-            if ($pasarguardPercent != 0) {
-                $basePrice = $plan->price;
-                $percentPrice = ($basePrice / 100) * $pasarguardPercent;
-                $planPrice = $basePrice + $percentPrice;
-                if ($plan->discount != 0) {
-                    $discount = ($planPrice / 100) * $plan->discount;
-                    $planPrice = $planPrice - $discount;
-                }
-                $price = number_format($planPrice);
-
-            } else {
-                $planPrice = calculatePlanDiscount($plan)['price'];
-            }
-
-            $total = ($planPrice + $extraPrice) * $count;
-
         } else {
-            if (!empty($extra)) {
-                $extra = ExtraBandwidth::find($extra);
-                if (is_null($plan)) {
-                    return $this->sendTemporaryMessage('حجم اضافه مورد نظر یافت نشد');
-                }
-                $extraPrice = calculateExtraDiscount($extra, $service->price_per_gb)['price'];
-                $showPrice = number_format($extraPrice);
-                $extraText = "🌐 <b>حجم اضافه انتخاب شده انتخاب‌شده:</b>
-<code>{$extra->name} GB | مبلغ:{$showPrice} تومان</code>";
-                $extra = $extra->id;
-            }
-
             $planPrice = calculatePlanDiscount($plan)['price'];
-            $total = ($planPrice + $extraPrice) * $count;
         }
+        $total = $planPrice * $count;
         $preOrderData = [
             'service-id' => $service_id,
             'country-id' => $country_id,
@@ -2236,7 +2056,6 @@ class TelegramBotController extends Controller
 📦 <b>نوع سرویس:</b> <code>{$service->name}</code>
 🌐 <b>کشور:</b> <code>{$countryName}</code>
 🌐 <b>تعرفه:</b> <code>{$plan->name}</code>
-{$extraText}
 🌐 <b>تعداد:</b><code>{$count} عدد</code>
 💵 <b>مبلغ کل:</b> <code>{$price} تومان</code>
 💡 نحوه پرداخت را مشخص کنید:";
@@ -2269,7 +2088,7 @@ class TelegramBotController extends Controller
         $keyboard[] = [
             [
                 'text' => '🔙 بازگشت',
-                'callback_data' => "type=clientSelectName|s_id={$service_id}|co_id={$country?->id}|pl_id={$plan_id}|ex_id={$extra}|cu={$count}",
+                'callback_data' => "type=clientSelectName|s_id={$service_id}|co_id={$country?->id}|pl_id={$plan_id}|cu={$count}|p_id={$pasarGuard_id}",
             ],
         ];
         $data = [
