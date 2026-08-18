@@ -310,6 +310,13 @@ if (!function_exists('headTitle')) {
     }
 }
 
+if (!function_exists('rtlMessage')) {
+    function rtlMessage($text)
+    {
+        return preg_replace('/^(?=\S)/mu', "\u{200F}", $text) ?? $text;
+    }
+}
+
 if (!function_exists('generateConfig')) {
 
     function generateConfig(array $inbound, array $client, $address)

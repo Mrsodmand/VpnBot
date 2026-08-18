@@ -12,4 +12,14 @@ class HeadTitleTest extends TestCase
 
         $this->assertSame("<b>عنوان آزمایشی</b>\nمتن پیام", $message);
     }
+
+    public function test_rtl_marker_is_added_to_each_non_empty_line(): void
+    {
+        $message = rtlMessage("<b>عنوان</b>\n📦 متن\n\n<code>vip</code>");
+
+        $this->assertSame(
+            "\u{200F}<b>عنوان</b>\n\u{200F}📦 متن\n\n\u{200F}<code>vip</code>",
+            $message
+        );
+    }
 }

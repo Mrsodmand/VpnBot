@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Lib\Jdf;
 use App\Lib\PasarGuard;
-use App\Lib\Ramizno;
 use App\Models\Carts;
 use App\Models\Countries;
 use App\Models\ExtraBandwidth;
@@ -215,7 +214,7 @@ class TelegramBotController extends Controller
                 return $this->paymentWallet($type);
                 break;
             case 'paymentCrypto':
-                return $this->paymentCrypto($type);
+                return $this->sendTemporaryMessage('پرداخت کریپتو فعلاً فعال نیست.');
                 break;
 
             // Profile
@@ -1161,7 +1160,6 @@ class TelegramBotController extends Controller
 
         $cartBeCart = Setting::where('key', 'cart_be_cart')->first();
         $gateway = Setting::where('key', 'gateway')->first();
-        $crypto = Setting::where('key', 'crypto')->first();
 
         if (!is_null($gateway) && $gateway->value == 1) {
             $buttons[][] = ['text' => "📦 درگاه", 'callback_data' => 'type=addFundStepOne|value=Online'];
@@ -1169,10 +1167,6 @@ class TelegramBotController extends Controller
 
         if (!is_null($cartBeCart) && $cartBeCart->value == 1) {
             $buttons[][] = ['text' => "📦 کارت به کارت", 'callback_data' => 'type=addFundStepOne|value=Cart'];
-        }
-
-        if (!is_null($crypto) && $crypto->value == 1) {
-            $buttons[][] = ['text' => "📦 ارز دیجیتال", 'callback_data' => 'type=addFundStepOne|value=Crypto'];
         }
 
         $buttons[][] = ['text' => "برگشت", 'callback_data' => 'type=home',];
@@ -1192,6 +1186,9 @@ class TelegramBotController extends Controller
     protected function addFundStepOne($data)
     {
         $method = $data['value'];
+        if (!in_array($method, ['Online', 'Cart'], true)) {
+            return $this->sendTemporaryMessage('روش پرداخت انتخاب‌شده فعلاً فعال نیست.');
+        }
 
         $setting = Setting::where('key', 'charge_amount')->first();
         if (!is_null($setting) && !empty($setting->value)) {
@@ -1252,15 +1249,18 @@ class TelegramBotController extends Controller
             case "Cart":
                 return $this->addFundCart($data);
                 break;
-            case "Crypto":
-                return $this->addFundCrypto($data);
-                break;
+            default:
+                return $this->sendTemporaryMessage('روش پرداخت انتخاب‌شده فعلاً فعال نیست.');
         }
     }
 
     protected function addFundCustomAmount($data)
     {
         $key = $data['key'];
+        if (!in_array($key, ['Online', 'Cart'], true)) {
+            return $this->sendTemporaryMessage('روش پرداخت انتخاب‌شده فعلاً فعال نیست.');
+        }
+
         $user = $this->user;
         $tel_detail = $user->tel_detail;
         $tel_detail['add-fund-method'] = $key;
@@ -1402,11 +1402,6 @@ class TelegramBotController extends Controller
             ])
         ];
         return $this->sendMessage($data, 'message');
-
-    }
-
-    private function addFundCrypto($data)
-    {
 
     }
 
@@ -2077,21 +2072,13 @@ class TelegramBotController extends Controller
 
         $keyboard[] = [
             [
-                'text' => 'پرداخت کریپتو',
-                'callback_data' => "type=paymentCrypto|id={$payment->id}",
-            ],
-        ];
-
-
-        $keyboard[] = [
-            [
                 'text' => '🔙 بازگشت',
                 'callback_data' => "type=clientSelectName|s_id={$service_id}|co_id={$country?->id}|pl_id={$plan_id}|cu={$count}|p_id={$pasarGuard_id}",
             ],
         ];
         $data = [
             'chat_id' => $this->chatId,
-            'text' => trim($text),
+            'text' => rtlMessage(trim($text)),
             'parse_mode' => 'HTML',
             'reply_markup' => json_encode([
                 'inline_keyboard' => $keyboard
@@ -2208,66 +2195,6 @@ class TelegramBotController extends Controller
                 'inline_keyboard' => $buttons
             ])
         ], 'message');
-    }
-
-    protected function paymentCrypto($type)
-    {
-
-        $id = $type['id'] ?? null;
-
-        $payment = Payment::find($id);
-        $price = $payment->price ?? 0;
-
-        if (!$payment) {
-            return $this->sendTemporaryMessage('❌ پرداخت پیدا نشد');
-        }
-        $token = "4MC27L!9kevXBoBnc52azGd4qZmyidjamoAU2pzW";
-
-        $ramzino = new Ramizno("https://panel.ramzino.me/api", $token);
-        $data = [
-            'amount' => $payment->price,
-            'order_id' => "$payment->id",
-            'to_currency' => 'irt',
-        ];
-        $ramzino = $ramzino->post('/gateway/create-invoice', $data);
-        if ($ramzino['success']) {
-            $buttons[] = [
-                [
-                    'text' => 'پرداخت',
-                    'url' => "{$ramzino['data']['url']}"
-                ]
-            ];
-        }
-        $detail['message_id'] = $this->messageId;
-        $payment->method = 'crypto';
-        $payment->detail = $detail;
-        $payment->save();
-
-        $support = Setting::where('key', 'support_id')->first();
-
-        $amount = number_format($price);
-        $text = "درخواست شما ثبت شد.
-👝 مبلغ سفارش : <code>{$amount}</code> تومان
-جهت پرداخت از طریق لینک زیر  اقدام کنید
-📞 @{$support->value}";
-
-        $buttons[] = [
-            [
-                'text' => 'منو اصلی',
-                'callback_data' => "type=home",
-                'style' => 'primary'
-            ]
-        ];
-
-        return $this->sendMessage([
-            'chat_id' => $this->chatId,
-            'text' => trim($text),
-            'parse_mode' => 'HTML',
-            'reply_markup' => json_encode([
-                'inline_keyboard' => $buttons
-            ])
-        ], 'message');
-
     }
 
     protected function paymentSendReceipt($type)
@@ -3949,7 +3876,7 @@ $codeText
         ];
         $data = [
             'chat_id' => $this->chatId,
-            'text' => trim($text),
+            'text' => rtlMessage(trim($text)),
             'parse_mode' => 'HTML',
             'reply_markup' => json_encode([
                 'inline_keyboard' => $keyboard
@@ -4550,7 +4477,7 @@ $codeText
         ];
         $data = [
             'chat_id' => $this->chatId,
-            'text' => trim($text),
+            'text' => rtlMessage(trim($text)),
             'parse_mode' => 'HTML',
             'reply_markup' => json_encode([
                 'inline_keyboard' => $keyboard
@@ -8138,19 +8065,6 @@ $codeText
             [
                 'text' => "تنظیمات کارت به کارت",
                 'callback_data' => 'type=adminCartSetting',
-                'style' => 'primary'
-            ],
-        ];
-
-        $buttons[] = [
-
-            [
-                'text' => "مشاهده تنظمیات",
-                'callback_data' => 'ignore'
-            ],
-            [
-                'text' => "تنظیمات درگاه کریپتو",
-                'callback_data' => 'ignore',
                 'style' => 'primary'
             ],
         ];
