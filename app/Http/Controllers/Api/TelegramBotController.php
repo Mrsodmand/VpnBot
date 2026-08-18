@@ -22,6 +22,7 @@ use App\Models\Service;
 use App\Models\Setting;
 use App\Models\TelegramData;
 use App\Models\User;
+use App\Services\OrderCountryResolver;
 use App\Services\Telegram;
 use App\Services\WpSyncService;
 use Carbon\Carbon;
@@ -2963,6 +2964,11 @@ class TelegramBotController extends Controller
         $orderDetail = $data['orderDetail'];
         $plan = $data['plan'];
 
+        $orderCountryId = (int) ($orderDetail['country-id'] ?? 0);
+        $orderCountryName = $orderCountryId > 0
+            ? Countries::whereKey($orderCountryId)->value('name')
+            : ((int) ($orderDetail['pasarguard-id'] ?? 0) > 0 ? '🌍 همه کشورها' : null);
+
         if ($panel->system_type == 'pasarguard') {
             if (array_key_exists('pasarguard-id', $orderDetail) && $orderDetail['pasarguard-id'] != 0) {
                 $activeGroup = Inbounds::where('panel_id', $panel->id)
@@ -3044,6 +3050,8 @@ class TelegramBotController extends Controller
                     'detail' => [
                         'code' => $config,
                         'preOrderId' => $preOrder->id,
+                        'country-id' => $orderCountryId,
+                        'country' => $orderCountryName,
                     ],
                 ]);
 
@@ -3276,6 +3284,8 @@ $codeText
                     'detail' => [
                         'code' => $code,
                         'preOrderId' => $preOrder->id,
+                        'country-id' => $orderCountryId,
+                        'country' => $orderCountryName,
                     ],
                 ]);
 
@@ -3422,8 +3432,10 @@ $codeText
         }
 
         if (!empty($search)) {
-            $query->where('remark', 'like', "%{$search}%")
-                ->orWhere('detail->code', $search);
+            $query->where(function ($searchQuery) use ($search) {
+                $searchQuery->where('remark', 'like', "%{$search}%")
+                    ->orWhere('detail->code', $search);
+            });
         }
 
         $list = $query
@@ -3454,11 +3466,13 @@ $codeText
         $keyboard = ['inline_keyboard' => []];
 
         if ($list->count() > 0) {
+            $orderCountries = app(OrderCountryResolver::class)->resolve($list->getCollection());
 
             foreach ($list as $order) {
+                $country = $orderCountries[$order->id] ?? '🌍 نامشخص';
                 $keyboard['inline_keyboard'][] = [
                     [
-                        'text' => "🧾 سفارش #{$order->id} | {$order->remark}",
+                        'text' => "{$order->id} | {$country}",
                         'callback_data' => "type=clientSingleOrder|id={$order->id}"
                     ]
                 ];
