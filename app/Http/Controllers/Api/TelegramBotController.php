@@ -4321,7 +4321,6 @@ $codeText
         $perGbPrice = $service->price_per_gb;
 
         $keyboard = [];
-        $row = [];
         if (count($list) > 0) {
 
             $pasarguardPercent = 0;
@@ -4346,17 +4345,12 @@ $codeText
                     $price = number_format($price['price']);
                 }
 
-                $row[] = [
-                    'text' => "{$name} GB | {$price} تومان",
-                    'callback_data' => "type=clientSubmitExtra|o_id={$order->id}|ex_id=$item->id",
+                $keyboard[] = [
+                    [
+                        'text' => "{$name} GB | {$price} تومان",
+                        'callback_data' => "type=clientSubmitExtra|o_id={$order->id}|ex_id=$item->id",
+                    ],
                 ];
-                if (count($row) === 2) {
-                    $keyboard[] = $row;
-                    $row = [];
-                }
-            }
-            if (!empty($row)) {
-                $keyboard[] = $row;
             }
         }
 
