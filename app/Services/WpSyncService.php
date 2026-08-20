@@ -419,6 +419,7 @@ class WpSyncService
             '1', 'approved' => 'تایید شده',
             '0', 'pending' => 'در انتظار بررسی',
             '-1', 'rejected' => 'رد شده',
+            '-2', 'refunded' => 'برگشت به کیف پول',
             default => (string) $status,
         };
     }
@@ -426,8 +427,8 @@ class WpSyncService
     public function paymentMethodLabel($method): string
     {
         return match ((string) $method) {
-            'wallet' => 'کیف پول',
-            'cart-be-cart', 'cart_be_cart', 'card', 'wordpress_wallet' => 'کارت به کارت',
+            'wallet', 'wordpress_wallet' => 'کیف پول',
+            'cart-be-cart', 'cart_be_cart', 'card' => 'کارت به کارت',
             'gateway', 'online' => 'درگاه پرداخت',
             'crypto' => 'ارز دیجیتال',
             'admin_credit' => 'شارژ دستی ادمین',
@@ -443,6 +444,8 @@ class WpSyncService
             '2', 'renew' => 'تمدید سرویس',
             '3', 'extra' => 'خرید حجم',
             '4', 'wallet', 'wallet_charge' => 'شارژ کیف پول',
+            'admin_credit' => 'شارژ دستی کیف پول',
+            'admin_debit' => 'کسر دستی از کیف پول',
             'wp_order' => 'خرید سایت با کیف پول',
             default => $type ? (string) $type : '-',
         };
@@ -468,7 +471,7 @@ class WpSyncService
     public function walletTransactions(User $user, int $page = 1, int $perPage = 20): array
     {
         return $this->paginateQuery(
-            Payment::query()->where('user_id', $user->id)->orderByDesc('id'),
+            Payment::query()->forWalletHistory($user)->orderByDesc('id'),
             $page,
             $perPage,
             fn ($payment) => $this->formatPayment($payment)
@@ -489,8 +492,11 @@ class WpSyncService
 
         DB::transaction(function () use ($user, $amount, $meta, $method, $refId) {
             $target = User::where('id', $user->id)->lockForUpdate()->first();
-            $target->balance = (int) $target->balance + $amount;
+            $before = (int) $target->balance;
+            $target->balance = $before + $amount;
             $target->save();
+            $meta['wallet_balance_before'] = $before;
+            $meta['wallet_balance_after'] = (int) $target->balance;
             Payment::create([
                 'user_id' => $target->id,
                 'order_id' => (int) ($meta['order_id'] ?? 0),
@@ -524,8 +530,11 @@ class WpSyncService
             if ((int) $target->balance < $amount) {
                 return ['ok' => false, 'message' => 'موجودی کیف پول کافی نیست.', 'balance' => (int) $target->balance];
             }
-            $target->balance = (int) $target->balance - $amount;
+            $before = (int) $target->balance;
+            $target->balance = $before - $amount;
             $target->save();
+            $meta['wallet_balance_before'] = $before;
+            $meta['wallet_balance_after'] = (int) $target->balance;
             Payment::create([
                 'user_id' => $target->id,
                 'order_id' => (int) ($meta['order_id'] ?? 0),

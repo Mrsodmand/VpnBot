@@ -27,6 +27,7 @@ use App\Services\Telegram;
 use App\Services\WpSyncService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
@@ -155,6 +156,11 @@ class TelegramBotController extends Controller
             $type[$name] = $id;
         }
 
+        $callbackType = (string) ($type['type'] ?? '');
+        if (str_starts_with(strtolower($callbackType), 'admin') && !$this->isAdmin) {
+            return $this->denyAdminAccess();
+        }
+
         if (array_key_exists('action', $type)) {
             switch ($type['action']) {
                 case 'delete':
@@ -233,6 +239,9 @@ class TelegramBotController extends Controller
             case "addFundCustomAmount":
                 $this->addFundCustomAmount($type);
                 break;
+            case "clientWalletTransactions":
+                return $this->clientWalletTransactions($type);
+                break;
 
             // Order
             case "clientOrders":
@@ -240,6 +249,9 @@ class TelegramBotController extends Controller
                 break;
             case "clientSingleOrder":
                 return $this->clientSingleOrder($type);
+                break;
+            case "clientOrderTransactions":
+                return $this->clientOrderTransactions($type);
                 break;
             case "clientChangeConfigName":
                 $this->method = 'toUser';
@@ -315,6 +327,10 @@ class TelegramBotController extends Controller
                 break;
             case "adminUserBalance":
                 return $this->adminUserBalance($type);
+                break;
+            case "adminWalletTransactions":
+            case "adminUserTransactions":
+                return $this->adminWalletTransactions($type);
                 break;
             case "adminUserBalanceAction":
                 return $this->adminUserBalanceAction($type);
@@ -536,6 +552,9 @@ class TelegramBotController extends Controller
                 break;
             case "adminOrderSingle":
                 return $this->adminOrderSingle($type);
+                break;
+            case "adminOrderTransactions":
+                return $this->adminOrderTransactions($type);
                 break;
             case "adminOrderChangeBw":
                 return $this->adminOrderChangeBw($type);
@@ -953,6 +972,231 @@ class TelegramBotController extends Controller
         $this->telegramSdk->deleteMessage($data);
     }
 
+    private function escapeHtml(mixed $value): string
+    {
+        return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    }
+
+    private function paymentOrderRemark(Payment $payment): ?string
+    {
+        $detail = is_array($payment->detail)
+            ? $payment->detail
+            : (json_decode((string) $payment->detail, true) ?: []);
+        $remark = trim((string) ($detail['remark'] ?? ''));
+        if ($remark !== '') {
+            return $remark;
+        }
+
+        if (!in_array((string) $payment->type, ['2', '3', 'renew', 'extra'], true)) {
+            return null;
+        }
+
+        return Orders::where('id', $payment->order_id)
+            ->where('user_id', $payment->user_id)
+            ->value('remark');
+    }
+
+    private function orderTransactionsQuery(Orders $order)
+    {
+        return Payment::query()->forOrderHistory($order);
+    }
+
+    private function walletTransactionsQuery(User $user)
+    {
+        return Payment::query()->forWalletHistory($user);
+    }
+
+    private function transactionTypeLabel(Payment $payment): string
+    {
+        return match ((string) $payment->method) {
+            'admin_credit' => 'شارژ دستی کیف پول',
+            'admin_debit' => 'کسر دستی از کیف پول',
+            default => app(WpSyncService::class)->paymentTypeLabel($payment->type),
+        };
+    }
+
+    private function transactionStatusMeta(Payment $payment): array
+    {
+        return match ((string) $payment->status) {
+            '1', 'approved' => ['icon' => '✅', 'label' => 'تأیید شده'],
+            '0', 'pending' => ['icon' => '⏳', 'label' => 'در انتظار بررسی'],
+            '-1', 'rejected' => ['icon' => '❌', 'label' => 'رد شده'],
+            '-2', 'refunded' => ['icon' => '↩️', 'label' => 'برگشت به کیف پول'],
+            default => ['icon' => 'ℹ️', 'label' => (string) $payment->status],
+        };
+    }
+
+    private function transactionSelectionLabel(Payment $payment): ?string
+    {
+        $detail = is_array($payment->detail)
+            ? $payment->detail
+            : (json_decode((string) $payment->detail, true) ?: []);
+
+        $planId = (int) ($detail['plan-id'] ?? 0);
+        if ($planId > 0) {
+            $plan = Plans::find($planId);
+            if ($plan) {
+                return "تعرفه: {$plan->name} | {$plan->bandwidth} گیگ | {$plan->days} روز";
+            }
+
+            return "شناسه تعرفه: {$planId}";
+        }
+
+        $extraId = (int) ($detail['extra-id'] ?? 0);
+        if ($extraId > 0) {
+            $extra = ExtraBandwidth::find($extraId);
+
+            return $extra ? "حجم افزوده: {$extra->name} گیگ" : "شناسه بسته حجم: {$extraId}";
+        }
+
+        $note = trim((string) ($detail['note'] ?? ''));
+
+        return $note !== '' ? "توضیح: {$note}" : null;
+    }
+
+    private function isWalletDebit(Payment $payment): bool
+    {
+        if ((string) $payment->status === '-2') {
+            return false;
+        }
+
+        if ((string) $payment->method === 'admin_debit') {
+            return true;
+        }
+
+        return (string) $payment->method === 'wallet'
+            && !in_array((string) $payment->type, ['4', 'wallet', 'wallet_charge', 'admin_credit'], true);
+    }
+
+    private function refundPaymentToWallet(Payment $payment, User $targetUser, string $reason): bool
+    {
+        return DB::transaction(function () use ($payment, $targetUser, $reason) {
+            $lockedPayment = Payment::where('id', $payment->id)->lockForUpdate()->first();
+            $lockedUser = User::where('id', $targetUser->id)->lockForUpdate()->first();
+            if (
+                !$lockedPayment
+                || !$lockedUser
+                || (int) $lockedPayment->user_id !== (int) $lockedUser->id
+                || (string) $lockedPayment->status !== '1'
+            ) {
+                return false;
+            }
+
+            $before = (int) $lockedUser->balance;
+            $lockedUser->balance = $before + (int) $lockedPayment->price;
+            $lockedUser->save();
+
+            $detail = is_array($lockedPayment->detail) ? $lockedPayment->detail : [];
+            $detail['refund_reason'] = $reason;
+            $detail['refunded_at'] = now()->toDateTimeString();
+            $detail['wallet_balance_before_refund'] = $before;
+            $detail['wallet_balance_after_refund'] = (int) $lockedUser->balance;
+            $lockedPayment->status = -2;
+            $lockedPayment->detail = $detail;
+            $lockedPayment->save();
+
+            return true;
+        });
+    }
+
+    private function formatTransactionEntry(Payment $payment, bool $admin = false, bool $wallet = false): string
+    {
+        $detail = is_array($payment->detail)
+            ? $payment->detail
+            : (json_decode((string) $payment->detail, true) ?: []);
+        $status = $this->transactionStatusMeta($payment);
+        $type = $this->escapeHtml($this->transactionTypeLabel($payment));
+        $method = $this->escapeHtml(app(WpSyncService::class)->paymentMethodLabel($payment->method));
+        $amountPrefix = $wallet ? ($this->isWalletDebit($payment) ? '➖' : '➕') : '💰';
+        $createdAt = $payment->created_at?->format('Y-m-d H:i') ?? 'نامشخص';
+        $updatedAt = $payment->updated_at?->format('Y-m-d H:i') ?? 'نامشخص';
+        $remark = $this->paymentOrderRemark($payment);
+        $selection = $this->transactionSelectionLabel($payment);
+
+        $text = "{$status['icon']} <b>تراکنش #{$payment->id}</b> — {$type}\n";
+        if ($remark !== null) {
+            $text .= "🏷 ریمارک: <code>" . $this->escapeHtml($remark) . "</code>\n";
+        }
+        $text .= "{$amountPrefix} مبلغ: <code>" . number_format((float) $payment->price) . "</code> تومان\n";
+        $text .= "💳 روش: {$method}\n";
+        $text .= "📌 وضعیت: {$status['label']}\n";
+        if ($selection !== null) {
+            $text .= "🧾 " . $this->escapeHtml($selection) . "\n";
+        }
+
+        if ($admin) {
+            $text .= "👤 شناسه کاربر: <code>{$payment->user_id}</code>\n";
+            $text .= "📦 شناسه مرجع سفارش: <code>" . ((int) $payment->order_id ?: '—') . "</code>\n";
+            $text .= "👨‍💻 شناسه ادمین: <code>" . ($payment->admin_id ?: '—') . "</code>\n";
+            $text .= "🔖 کد مرجع: <code>" . $this->escapeHtml($payment->ref_id ?: '—') . "</code>\n";
+            if (!empty($detail['cart-number'])) {
+                $text .= "💳 کارت مقصد: <code>" . $this->escapeHtml($detail['cart-number']) . "</code>\n";
+            }
+            if (array_key_exists('wallet_balance_before', $detail) || array_key_exists('wallet_balance_after', $detail)) {
+                $text .= "💼 موجودی: <code>" . number_format((float) ($detail['wallet_balance_before'] ?? 0))
+                    . "</code> ← <code>" . number_format((float) ($detail['wallet_balance_after'] ?? 0)) . "</code>\n";
+            }
+            if (array_key_exists('wallet_balance_before_refund', $detail) || array_key_exists('wallet_balance_after_refund', $detail)) {
+                $text .= "↩️ موجودی پس از برگشت: <code>" . number_format((float) ($detail['wallet_balance_before_refund'] ?? 0))
+                    . "</code> ← <code>" . number_format((float) ($detail['wallet_balance_after_refund'] ?? 0)) . "</code>\n";
+            }
+            if ($payment->expired_at) {
+                $text .= "⌛ انقضای پرداخت: <code>{$payment->expired_at->format('Y-m-d H:i')}</code>\n";
+            }
+            $text .= "🕒 ایجاد: <code>{$createdAt}</code> | بروزرسانی: <code>{$updatedAt}</code>\n";
+        } else {
+            $text .= "🕒 تاریخ: <code>{$createdAt}</code>\n";
+        }
+
+        return $text;
+    }
+
+    private function sendTransactionsPage($payments, string $title, string $callback, string $backCallback, bool $admin = false, bool $wallet = false)
+    {
+        $text = headTitle($title);
+        if ($payments->isEmpty()) {
+            $text .= "تراکنشی برای نمایش وجود ندارد.";
+        } else {
+            foreach ($payments as $payment) {
+                $text .= $this->formatTransactionEntry($payment, $admin, $wallet) . "\n━━━━━━━━━━━━━━━\n";
+            }
+        }
+
+        $keyboard = [];
+        $pagination = $this->paginationFooterButton($payments, $payments->currentPage(), $callback);
+        if (!empty($pagination)) {
+            $keyboard[] = $pagination;
+        }
+        $keyboard[] = [[
+            'text' => '🔙 بازگشت',
+            'callback_data' => $backCallback,
+        ]];
+
+        return $this->sendMessage([
+            'chat_id' => $this->chatId,
+            'text' => trim($text),
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode(['inline_keyboard' => $keyboard]),
+        ], 'message');
+    }
+
+    private function denyAdminAccess()
+    {
+        if (!$this->callbackId) {
+            return $this->telegramSdk->sendMessage([
+                'chat_id' => $this->chatId,
+                'text' => 'دسترسی غیرمجاز است.',
+            ]);
+        }
+
+        return $this->telegramSdk->answerCallback([
+            'callback_query_id' => $this->callbackId,
+            'text' => 'دسترسی غیرمجاز است.',
+            'show_alert' => true,
+            'cache_time' => 1,
+        ]);
+    }
+
     private function countryToFlag($flag)
     {
         $countryCode = strtoupper($flag);
@@ -1168,6 +1412,7 @@ class TelegramBotController extends Controller
             $buttons[][] = ['text' => "📦 کارت به کارت", 'callback_data' => 'type=addFundStepOne|value=Cart'];
         }
 
+        $buttons[][] = ['text' => "📋 لیست تراکنش‌ها", 'callback_data' => 'type=clientWalletTransactions'];
         $buttons[][] = ['text' => "برگشت", 'callback_data' => 'type=home',];
 
         $balance = number_format($this->user->balance);
@@ -1408,10 +1653,41 @@ class TelegramBotController extends Controller
     {
         $id = $data['id'];
         $payment = Payment::find($id);
-        $targetUser = User::find($payment->user_id);
+        if (!$payment || (string) $payment->type !== '4' || (string) $payment->status !== '1') {
+            return $this->sendTemporaryMessage('تراکنش شارژ کیف پول یافت نشد.');
+        }
 
-        $targetUser->balance = $targetUser->balance + $payment->price;
-        $targetUser->save();
+        $targetUser = DB::transaction(function () use ($payment) {
+            $lockedPayment = Payment::where('id', $payment->id)->lockForUpdate()->first();
+            if (!$lockedPayment) {
+                return null;
+            }
+            $lockedUser = User::where('id', $lockedPayment->user_id)->lockForUpdate()->first();
+            if (!$lockedUser) {
+                return null;
+            }
+
+            $detail = is_array($lockedPayment->detail) ? $lockedPayment->detail : [];
+            if (!empty($detail['wallet_credit_applied'])) {
+                return $lockedUser;
+            }
+
+            $before = (int) $lockedUser->balance;
+            $lockedUser->balance = $before + (int) $lockedPayment->price;
+            $lockedUser->save();
+
+            $detail['wallet_balance_before'] = $before;
+            $detail['wallet_balance_after'] = (int) $lockedUser->balance;
+            $detail['wallet_credit_applied'] = true;
+            $lockedPayment->detail = $detail;
+            $lockedPayment->save();
+
+            return $lockedUser;
+        });
+        if (!$targetUser) {
+            return $this->sendTemporaryMessage('کاربر تراکنش شارژ کیف پول یافت نشد.');
+        }
+        $payment->refresh();
 
         $transactionChannel = Setting::where('key', 'cart_be_cart_id')->first();
         $channelId = (!is_null($transactionChannel) && !empty($transactionChannel->value))
@@ -2098,6 +2374,9 @@ class TelegramBotController extends Controller
         if (!$payment) {
             return $this->sendTemporaryMessage('❌ پرداخت پیدا نشد');
         }
+        if ((string) $payment->status !== '0') {
+            return $this->sendTemporaryMessage('این تراکنش قبلاً پردازش شده است.');
+        }
 
         if ((int) $payment->type === 2) {
             $order = Orders::where('id', $payment->order_id)->where('user_id', $user->id)->first();
@@ -2149,8 +2428,13 @@ class TelegramBotController extends Controller
 
         $rialAmount = number_format($price * 10);
         $amount = number_format($price);
+        $paymentRemark = $this->paymentOrderRemark($payment);
+        $remarkText = $paymentRemark !== null
+            ? "\n🏷 ریمارک سرویس: <code>" . $this->escapeHtml($paymentRemark) . "</code>"
+            : '';
         $text = "درخواست شما ثبت شد.
 👝 مبلغ سفارش : <code>{$amount}</code> تومان
+{$remarkText}
 🔘 جهت تکمیل سفارش مبلغ فاکتور را به تومان به شماره کارت زیر واریز نموده و پس از واریز تصویر فیش را در همین مرحله برای ربات ارسال نمایید :
 
 💳 <code> {$cardNumber} </code>
@@ -2268,6 +2552,9 @@ class TelegramBotController extends Controller
                 $value = url('uploads/telegram/' . $fileName);
             }
         }
+        if (!isset($value) || trim((string) $value) === '') {
+            return $this->sendTemporaryMessage('❌ دریافت رسید ناموفق بود؛ لطفاً دوباره ارسال کنید.');
+        }
 
         /*
         |--------------------------------------------------------------------------
@@ -2290,13 +2577,26 @@ class TelegramBotController extends Controller
 
         $caption = "💳 <b>رسید جدید کارت به کارت</b>\n\n";
 
-        $payment = Payment::find($paymentId);
+        $payment = Payment::where('id', $paymentId)
+            ->where('user_id', $user->id)
+            ->where('status', 0)
+            ->first();
+        if (!$payment) {
+            return $this->sendTemporaryMessage('❌ تراکنش معتبر یا در انتظار بررسی پیدا نشد.');
+        }
         $paymentType = __('payment.type.' . $payment->type);
         $caption .= "💥 نوع تراکنش: <code>{$paymentType}</code>\n";
+        $paymentRemark = $this->paymentOrderRemark($payment);
+        if ($paymentRemark !== null) {
+            $caption .= "🏷 ریمارک سرویس: <code>" . $this->escapeHtml($paymentRemark) . "</code>\n";
+        }
 
-        $paymentDetail = $payment->detail;
-        $paymentDetail['cart-number'] = $tel_detail['payment-cart-number'];
-        $paymentDetail['cart-name'] = $tel_detail['payment-cart-name'];
+        $paymentDetail = is_array($payment->detail) ? $payment->detail : [];
+        if ($paymentRemark !== null) {
+            $paymentDetail['remark'] = $paymentRemark;
+        }
+        $paymentDetail['cart-number'] = $paymentCardNumber;
+        $paymentDetail['cart-name'] = $paymentCardName;
         $paymentDetail['value'] = $value;
 
 
@@ -2385,6 +2685,10 @@ class TelegramBotController extends Controller
 
     protected function adminRejectCartReceipt($type)
     {
+        if (!$this->isAdmin) {
+            return $this->denyAdminAccess();
+        }
+
         $id = $type['p_id'];
 
         $payment = Payment::find($id);
@@ -2399,8 +2703,17 @@ class TelegramBotController extends Controller
         |--------------------------------------------------------------------------
         */
 
-        $payment->status = -1;
-        $payment->save();
+        $updated = Payment::where('id', $payment->id)
+            ->where('status', 0)
+            ->update([
+                'status' => -1,
+                'admin_id' => $this->user->id,
+                'updated_at' => now(),
+            ]);
+        if ($updated !== 1) {
+            return $this->sendTemporaryMessage('این تراکنش قبلاً پردازش شده است.');
+        }
+        $payment->refresh();
 
         /*
         |--------------------------------------------------------------------------
@@ -2488,6 +2801,10 @@ class TelegramBotController extends Controller
         $caption .= "💳 <b>شماره کارت:</b> <code>{$paymentCardNumber}</code>\n";
         $caption .= "👤 <b>صاحب کارت:</b> {$paymentCardName}\n";
         $caption .= "💰 <b>مبلغ:</b> <code>{$price}</code> تومان\n";
+        $paymentRemark = $this->paymentOrderRemark($payment);
+        if ($paymentRemark !== null) {
+            $caption .= "🏷 <b>ریمارک سرویس:</b> <code>" . $this->escapeHtml($paymentRemark) . "</code>\n";
+        }
 
         $caption .= "━━━━━━━━━━━━━━━\n";
         $caption .= "🚫 <b>رد شده توسط:</b>\n{$adminUserName}";
@@ -2540,6 +2857,10 @@ class TelegramBotController extends Controller
 
     protected function adminConfirmCartReceipt($type)
     {
+        if (!$this->isAdmin) {
+            return $this->denyAdminAccess();
+        }
+
         $id = $type['p_id'];
 
         $payment = Payment::find($id);
@@ -2563,11 +2884,20 @@ class TelegramBotController extends Controller
             }
         }
 
-        if ($payment->status == 0) {
-            $payment->status = 1;
-            $payment->save();
-            return $this->finalPaymentStep($payment);
+        if ((string) $payment->status === '0') {
+            $updated = Payment::where('id', $payment->id)
+                ->where('status', 0)
+                ->update([
+                    'status' => 1,
+                    'admin_id' => $this->user->id,
+                    'updated_at' => now(),
+                ]);
+            if ($updated === 1) {
+                return $this->finalPaymentStep($payment->fresh());
+            }
         }
+
+        return $this->sendTemporaryMessage('این تراکنش قبلاً پردازش شده است.');
     }
 
     protected function paymentWallet($type)
@@ -2597,7 +2927,36 @@ class TelegramBotController extends Controller
                 return $this->sendTemporaryMessage('خرید حجم برای این سفارش امکان‌پذیر نیست.');
             }
         }
-        if ($user->balance < $payment->price) {
+        $walletResult = DB::transaction(function () use ($payment, $user) {
+            $lockedPayment = Payment::where('id', $payment->id)
+                ->where('user_id', $user->id)
+                ->lockForUpdate()
+                ->first();
+            $lockedUser = User::where('id', $user->id)->lockForUpdate()->first();
+
+            if (!$lockedPayment || !$lockedUser || (string) $lockedPayment->status !== '0') {
+                return ['ok' => false, 'message' => 'این تراکنش قبلاً پردازش شده است.'];
+            }
+            if ((int) $lockedUser->balance < (int) $lockedPayment->price) {
+                return ['ok' => false, 'insufficient' => true];
+            }
+
+            $before = (int) $lockedUser->balance;
+            $lockedUser->balance = $before - (int) $lockedPayment->price;
+            $lockedUser->save();
+
+            $detail = is_array($lockedPayment->detail) ? $lockedPayment->detail : [];
+            $detail['wallet_balance_before'] = $before;
+            $detail['wallet_balance_after'] = (int) $lockedUser->balance;
+            $lockedPayment->status = 1;
+            $lockedPayment->method = 'wallet';
+            $lockedPayment->detail = $detail;
+            $lockedPayment->save();
+
+            return ['ok' => true, 'payment' => $lockedPayment];
+        });
+
+        if (!empty($walletResult['insufficient'])) {
             $data = [
                 'callback_query_id' => $this->callbackId,
                 'text' => 'موجودی شما برای پرداخت این سفارش کافی نیست.',
@@ -2606,16 +2965,11 @@ class TelegramBotController extends Controller
             ];
             return $this->telegramSdk->answerCallback($data);
         }
-
-
-        if ($payment->status == 0) {
-            $user->decrement('balance', $payment->price);
-            $payment->status = 1;
-            $payment->method = 'wallet';
-            $payment->save();
-            return $this->finalPaymentStep($payment);
+        if (!($walletResult['ok'] ?? false)) {
+            return $this->sendTemporaryMessage($walletResult['message'] ?? 'پرداخت انجام نشد.');
         }
 
+        return $this->finalPaymentStep($walletResult['payment']);
     }
 
     protected function finalPaymentStep($payment)
@@ -3385,25 +3739,29 @@ $codeText
                 ]] : []),
             ];
 
-            $buttons[] = [
-                [
-                    'text' => '📚 فایل های راهنما',
-                    'callback_data' => "type=clientGuides|id={$order->id}",
-                ],
-            ];
         } else {
-            $row = [[
-                    'text' => '📚 فایل های راهنما',
-                    'callback_data' => "type=clientGuides|id={$order->id}",
-                ]];
+            $row = [];
             if ($canRenew) {
                 $row[] = [
                     'text' => '🔄 تمدید سرویس',
                     'callback_data' => "type=clientRenewOrder|id={$order->id}",
                 ];
             }
-            $buttons[] = $row;
+            if ($row !== []) {
+                $buttons[] = $row;
+            }
         }
+
+        $buttons[] = [
+            [
+                'text' => '📚 راهنمای اتصال',
+                'url' => 'https://t.me/ipsabetme/118',
+            ],
+            [
+                'text' => '📋 لیست تراکنش‌ها',
+                'callback_data' => "type=clientOrderTransactions|id={$order->id}|action=delete",
+            ],
+        ];
 
         $buttons[] = [
 
@@ -3532,14 +3890,125 @@ $codeText
         return $messageResult;
     }
 
+    protected function clientOrderTransactions($data)
+    {
+        $order = Orders::where('id', $data['id'] ?? null)
+            ->where('user_id', $this->user->id)
+            ->first();
+        if (!$order) {
+            return $this->sendTemporaryMessage('سفارش مورد نظر یافت نشد.');
+        }
+
+        $page = max(1, (int) ($data['page'] ?? 1));
+        $payments = $this->orderTransactionsQuery($order)
+            ->orderByDesc('id')
+            ->paginate(8, ['*'], 'page', $page);
+        $remark = $this->escapeHtml($order->remark);
+
+        return $this->sendTransactionsPage(
+            $payments,
+            "📋 تراکنش‌های سفارش #{$order->id}\n🏷 {$remark}",
+            "clientOrderTransactions|id={$order->id}",
+            "type=clientSingleOrder|id={$order->id}|action=delete"
+        );
+    }
+
+    protected function clientWalletTransactions($data)
+    {
+        $page = max(1, (int) ($data['page'] ?? 1));
+        $payments = $this->walletTransactionsQuery($this->user)
+            ->orderByDesc('id')
+            ->paginate(8, ['*'], 'page', $page);
+
+        return $this->sendTransactionsPage(
+            $payments,
+            '💰 تراکنش‌های کیف پول' . "\nموجودی: " . number_format((float) $this->user->balance) . ' تومان',
+            'clientWalletTransactions',
+            'type=addFund',
+            false,
+            true
+        );
+    }
+
+    protected function adminOrderTransactions($data)
+    {
+        if (!$this->isAdmin) {
+            return $this->denyAdminAccess();
+        }
+
+        $order = Orders::find($data['id'] ?? null);
+        if (!$order) {
+            return $this->sendTemporaryMessage('سفارش مورد نظر یافت نشد.');
+        }
+
+        $page = max(1, (int) ($data['page'] ?? 1));
+        $payments = $this->orderTransactionsQuery($order)
+            ->orderByDesc('id')
+            ->paginate(5, ['*'], 'page', $page);
+        $remark = $this->escapeHtml($order->remark);
+        $owner = User::find($order->user_id);
+        $ownerLabel = $owner
+            ? ($owner->username ? '@' . ltrim($owner->username, '@') : ($owner->first_name ?: $owner->tel_id))
+            : 'کاربر نامشخص';
+        $ownerInfo = $this->escapeHtml($ownerLabel)
+            . ($owner ? ' | ' . $this->escapeHtml($owner->tel_id) : '');
+
+        return $this->sendTransactionsPage(
+            $payments,
+            "📋 تراکنش‌های کامل سفارش #{$order->id}\n🏷 {$remark}\n👤 {$ownerInfo}",
+            "adminOrderTransactions|id={$order->id}",
+            "type=adminOrderSingle|id={$order->id}",
+            true
+        );
+    }
+
+    protected function adminWalletTransactions($data)
+    {
+        if (!$this->isAdmin) {
+            return $this->denyAdminAccess();
+        }
+
+        $targetUser = User::find($data['id'] ?? null);
+        if (!$targetUser) {
+            return $this->sendTemporaryMessage('کاربر پیدا نشد.');
+        }
+
+        $page = max(1, (int) ($data['page'] ?? 1));
+        $payments = $this->walletTransactionsQuery($targetUser)
+            ->orderByDesc('id')
+            ->paginate(5, ['*'], 'page', $page);
+        $userLabel = $targetUser->username
+            ? '@' . ltrim($targetUser->username, '@')
+            : ($targetUser->first_name ?: $targetUser->tel_id);
+
+        return $this->sendTransactionsPage(
+            $payments,
+            '💰 تراکنش‌های کیف پول ' . $this->escapeHtml($userLabel)
+                . "\nموجودی: " . number_format((float) $targetUser->balance) . ' تومان',
+            "adminWalletTransactions|id={$targetUser->id}",
+            "type=adminUserBalance|id={$targetUser->id}",
+            true,
+            true
+        );
+    }
+
     protected function clientChangeConfigName($data)
     {
         $orderId = $data['id'];
-        $this->updatePath('clientChangeConfigNameSubmit');
         $user = $this->user;
 
-        $order = Orders::find($orderId);
+        $orderQuery = Orders::where('id', $orderId);
+        if (!$this->isAdmin) {
+            $orderQuery->where('user_id', $user->id);
+        }
+        $order = $orderQuery->first();
+        if (!$order) {
+            return $this->sendTemporaryMessage('سفارش مورد نظر یافت نشد.');
+        }
         $panel = Panels::find($order->panel_id);
+        if (!$panel) {
+            return $this->sendTemporaryMessage('پنل مربوط به سفارش یافت نشد.');
+        }
 
         if ($panel->system_type == 'pasarguard') {
             $data = [
@@ -3551,6 +4020,7 @@ $codeText
 
             return $this->telegramSdk->answerCallback($data);
         }
+        $this->updatePath('clientChangeConfigNameSubmit');
         $this->deleteChat();
 
         $telDetail = $user->tel_detail ?? [];
@@ -3559,11 +4029,11 @@ $codeText
         $user->save();
 
         $text = "⚙️ <b>تغییر نام کانفیگ</b>\n\n";
-        $text .= " مقدار قبلی : <b>{$order->remark}</b>\n\n";
+        $text .= " مقدار قبلی : <b>" . $this->escapeHtml($order->remark) . "</b>\n\n";
 
         $buttons = [];
 
-        $buttons[] = $this->adminFooterButtons("type=clientSingleOrder|id={$order->id}");
+        $buttons[] = $this->clientFooterButtons("type=clientSingleOrder|id={$order->id}");
 
 
         $data = [
@@ -3592,10 +4062,20 @@ $codeText
         $user = $this->user;
         $userDetail = $user->tel_detail;
 
-        $order = Orders::find($userDetail['order-id']);
+        $orderQuery = Orders::where('id', $userDetail['order-id'] ?? null);
+        if (!$this->isAdmin) {
+            $orderQuery->where('user_id', $user->id);
+        }
+        $order = $orderQuery->first();
+        if (!$order) {
+            return $this->sendTemporaryMessage('سفارش مورد نظر یافت نشد.');
+        }
 
         $panel = Panels::find($order->panel_id);
         $inbound = Inbounds::find($order->inbound_id);
+        if (!$panel || !$inbound || $panel->system_type == 'pasarguard') {
+            return $this->sendTemporaryMessage('اطلاعات پنل سفارش کامل نیست یا امکان تغییر نام وجود ندارد.');
+        }
         $loginData = [
             'username' => $panel->username,
             'password' => $panel->password,
@@ -3666,8 +4146,18 @@ $codeText
         $id = $data['id'];
         $uid = (string)Str::uuid();
 
-        $order = Orders::find($id);
+        $orderQuery = Orders::where('id', $id);
+        if (!$this->isAdmin) {
+            $orderQuery->where('user_id', $this->user->id);
+        }
+        $order = $orderQuery->first();
+        if (!$order) {
+            return $this->sendTemporaryMessage('سفارش مورد نظر یافت نشد.');
+        }
         $panel = Panels::find($order->panel_id);
+        if (!$panel) {
+            return $this->sendTemporaryMessage('پنل مربوط به سفارش یافت نشد.');
+        }
         if ($panel->system_type == 'pasarguard') {
             $data = [
                 'callback_query_id' => $this->callbackId,
@@ -3805,6 +4295,8 @@ $codeText
             }
         }
         $text = headTitle('تمدید سرویس');
+        $remark = $this->escapeHtml($order->remark);
+        $text .= "🏷 <b>ریمارک سرویس:</b> <code>{$remark}</code>\n\n";
         $text .= "💡 لطفاً یکی از تعرفه‌های زیر را انتخاب کنید:";
 
         $keyboard[] = $this->clientFooterButtons("type=clientSingleOrder|id={$order->id}");
@@ -3871,6 +4363,7 @@ $codeText
         }
 
         $detail['plan-id'] = $plan->id;
+        $detail['remark'] = (string) $order->remark;
 
 
         $payment = new Payment();
@@ -3884,7 +4377,9 @@ $codeText
         $payment->save();
 
         $text = headTitle("🌍انتخاب نحوه پرداخت");
-        $text .= "🌐 <b>تعرفه:</b>
+        $remark = $this->escapeHtml($order->remark);
+        $text .= "🏷 <b>ریمارک سرویس:</b> <code>{$remark}</code>
+🌐 <b>تعرفه:</b>
 <code>{$plan->name} | حجم: {$plan->bandwidth} GB | مبلغ:{$price} تومان</code>
 💡 نحوه پرداخت را مشخص کنید:";
 
@@ -3908,7 +4403,7 @@ $codeText
         $keyboard[] = [
             [
                 'text' => '🔙 بازگشت',
-                'callback_data' => "type=clientBuyExtra|id={$orderId}",
+                'callback_data' => "type=clientRenewOrder|id={$orderId}",
             ],
         ];
         $data = [
@@ -3954,7 +4449,8 @@ $codeText
             return $this->sendTemporaryMessage('❌ مقصد ارسال رسید یافت نشد.');
         }
         if ($payment->method == 'cart-be-cart') {
-            $caption = "✅ <b>تراکنش تایید شد</b>\n\n⏳ در حال تحویل سفارش به کاربر هستیم...\nلطفاً چند لحظه صبر کنید.";
+            $remark = $this->escapeHtml($order->remark);
+            $caption = "✅ <b>تراکنش تایید شد</b>\n\n🏷 <b>ریمارک سرویس:</b> <code>{$remark}</code>\n\n⏳ در حال تحویل سفارش به کاربر هستیم...\nلطفاً چند لحظه صبر کنید.";
             $adminMethod = 'edit';
             if ($this->isPhoto) {
                 $this->telegramSdk->editCaption([
@@ -3974,7 +4470,8 @@ $codeText
         }
         if ($payment->method == 'wallet') {
 
-            $caption = "✅ <b>تراکنش تایید شد</b>\n\n⏳ در حال پردازش سفارش هستیم...\nلطفاً چند لحظه صبر کنید.";
+            $remark = $this->escapeHtml($order->remark);
+            $caption = "✅ <b>تراکنش تایید شد</b>\n\n🏷 <b>ریمارک سرویس:</b> <code>{$remark}</code>\n\n⏳ در حال پردازش سفارش هستیم...\nلطفاً چند لحظه صبر کنید.";
 
             $this->sendMessage([
                 'chat_id' => $targetUser->tel_id,
@@ -3998,6 +4495,8 @@ $codeText
     protected function renewClient($panel, $order, $plan, $targetUser, $payment, $adminMethod, $channelId)
     {
         $paymentType = __('payment.type.' . $payment->type);
+        $remark = $this->escapeHtml($order->remark);
+        $remarkLine = "🏷 <b>ریمارک سرویس:</b> <code>{$remark}</code>\n";
         if ($panel->system_type == 'pasarguard') {
 
 
@@ -4044,7 +4543,7 @@ $codeText
                 $order->detail = $orderDetail;
                 $order->save();
 
-                $caption = "تمدید سرویس با موفقیت انجام شد.";
+                $caption = "تمدید سرویس با موفقیت انجام شد.\n\n{$remarkLine}";
 
                 $this->method = 'toUser';
                 $this->sendMessage([
@@ -4079,6 +4578,7 @@ $codeText
                     $caption .= "━━━━━━━━━━━━━━━\n";
                     $caption .= "👤 <b>کاربر:</b> {$targetUserName}\n";
                     $caption .= "🆔 <b>شناسه تلگرام:</b> <code>{$targetUser->tel_id}</code>\n";
+                    $caption .= $remarkLine;
                     $caption .= "━━━━━━━━━━━━━━━\n";
                     $caption .= "💳 <b>جزئیات پرداخت</b>\n";
                     $caption .= "💥 نوع تراکنش: <code>{$paymentType}</code>\n";
@@ -4095,6 +4595,7 @@ $codeText
                     $caption .= "━━━━━━━━━━━━━━━\n";
                     $caption .= "👤 <b>کاربر:</b> {$targetUserName}\n";
                     $caption .= "🆔 <b>شناسه تلگرام:</b> <code>{$targetUser->tel_id}</code>\n";
+                    $caption .= $remarkLine;
                     $caption .= "━━━━━━━━━━━━━━━\n";
                     $caption .= "💳 <b>جزئیات پرداخت</b>\n";
                     $caption .= "💥 نوع تراکنش: <code>{$paymentType}</code>\n";
@@ -4120,8 +4621,7 @@ $codeText
                 }
             } else {
 
-                $targetUser->balance = $payment->price + $targetUser->balance;
-                $targetUser->save();
+                $this->refundPaymentToWallet($payment, $targetUser, 'renew_failed');
 
                 $caption = "❌ <b>تمدید سرویس ناموفق بود</b>
 
@@ -4210,7 +4710,7 @@ $codeText
                 $order->detail = $orderDetail;
                 $order->save();
 
-                $caption = "تمدید سرویس با موفقیت انجام شد.";
+                $caption = "تمدید سرویس با موفقیت انجام شد.\n\n{$remarkLine}";
 
                 $this->method = 'toUser';
                 $this->sendMessage([
@@ -4245,6 +4745,7 @@ $codeText
                     $caption .= "━━━━━━━━━━━━━━━\n";
                     $caption .= "👤 <b>کاربر:</b> {$targetUserName}\n";
                     $caption .= "🆔 <b>شناسه تلگرام:</b> <code>{$targetUser->tel_id}</code>\n";
+                    $caption .= $remarkLine;
                     $caption .= "━━━━━━━━━━━━━━━\n";
                     $caption .= "💳 <b>جزئیات پرداخت</b>\n";
                     $caption .= "🔢 <b>شماره تراکنش:</b> <code>{$payment->id}</code>\n";
@@ -4261,6 +4762,7 @@ $codeText
                     $caption .= "━━━━━━━━━━━━━━━\n";
                     $caption .= "👤 <b>کاربر:</b> {$targetUserName}\n";
                     $caption .= "🆔 <b>شناسه تلگرام:</b> <code>{$targetUser->tel_id}</code>\n";
+                    $caption .= $remarkLine;
                     $caption .= "━━━━━━━━━━━━━━━\n";
                     $caption .= "💳 <b>جزئیات پرداخت</b>\n";
                     $caption .= "💰 <b>مبلغ واریزی:</b> <code>{$price}</code> تومان\n";
@@ -4285,8 +4787,7 @@ $codeText
                 }
 
             } else {
-                $targetUser->balance = $payment->price + $targetUser->balance;
-                $targetUser->save();
+                $this->refundPaymentToWallet($payment, $targetUser, 'renew_failed');
 
                 $caption = "❌ <b>تمدید سرویس ناموفق بود</b>
 
@@ -4346,6 +4847,8 @@ $codeText
         }
 
         $text = headTitle("خرید حجم اضافه");
+        $remark = $this->escapeHtml($order->remark);
+        $text .= "🏷 <b>ریمارک سرویس:</b> <code>{$remark}</code>\n\n";
         $text .= "💡 لطفاً یکی از گزینه زیر را انتخاب کنید:";
 
 
@@ -4455,6 +4958,7 @@ $codeText
         }
 
         $detail['extra-id'] = $extra->id;
+        $detail['remark'] = (string) $order->remark;
 
         $payment = new Payment();
         $payment->user_id = $user->id;
@@ -4467,11 +4971,15 @@ $codeText
         $payment->save();
 
         $text = headTitle("💳 انتخاب روش پرداخت");
+        $remark = $this->escapeHtml($order->remark);
 
         $text .= "🛒 <b>خلاصه سفارش شما</b>
 
 📦 <b>نوع سرویس:</b>
 خرید حجم
+
+🏷 <b>ریمارک سرویس:</b>
+<code>{$remark}</code>
 
 🌐 <b>حجم انتخابی:</b>
 <code>{$extra->name} گیگابایت</code>
@@ -4503,7 +5011,7 @@ $codeText
         $keyboard[] = [
             [
                 'text' => '🔙 بازگشت',
-                'callback_data' => "type=clientRenewOrder|id={$orderId}",
+                'callback_data' => "type=clientBuyExtra|id={$orderId}",
             ],
         ];
         $data = [
@@ -4549,7 +5057,8 @@ $codeText
             return $this->sendTemporaryMessage('❌ مقصد ارسال رسید یافت نشد.');
         }
         if ($payment->method == 'cart-be-cart') {
-            $caption = "✅ <b>تراکنش تایید شد</b>\n\n⏳ در حال تحویل سفارش به کاربر هستیم...\nلطفاً چند لحظه صبر کنید.";
+            $remark = $this->escapeHtml($order->remark);
+            $caption = "✅ <b>تراکنش تایید شد</b>\n\n🏷 <b>ریمارک سرویس:</b> <code>{$remark}</code>\n\n⏳ در حال تحویل سفارش به کاربر هستیم...\nلطفاً چند لحظه صبر کنید.";
             $adminMethod = 'edit';
 
             if ($this->isPhoto) {
@@ -4570,7 +5079,8 @@ $codeText
         }
         if ($payment->method == 'wallet') {
 
-            $caption = "✅ <b>تراکنش تایید شد</b>\n\n⏳ در حال پردازش سفارش هستیم...\nلطفاً چند لحظه صبر کنید.";
+            $remark = $this->escapeHtml($order->remark);
+            $caption = "✅ <b>تراکنش تایید شد</b>\n\n🏷 <b>ریمارک سرویس:</b> <code>{$remark}</code>\n\n⏳ در حال پردازش سفارش هستیم...\nلطفاً چند لحظه صبر کنید.";
 
             $this->sendMessage([
                 'chat_id' => $targetUser->tel_id,
@@ -4593,6 +5103,8 @@ $codeText
 
     protected function ExtraClient($panel, $order, $extra, $targetUser, $payment, $adminMethod, $channelId)
     {
+        $remark = $this->escapeHtml($order->remark);
+        $remarkLine = "🏷 <b>ریمارک سرویس:</b> <code>{$remark}</code>\n";
 
         if ($panel->system_type == 'pasarguard') {
             $pasarGuard = new PasarGuard([
@@ -4626,7 +5138,7 @@ $codeText
                 $order->status = Orders::STATUS_ACTIVE;
                 $order->reminded = 0;
                 $order->save();
-                $caption = "خرید حجم سرویس با موفقیت انجام شد.";
+                $caption = "خرید حجم سرویس با موفقیت انجام شد.\n\n{$remarkLine}";
 
                 $this->method = 'toUser';
                 $this->sendMessage([
@@ -4661,6 +5173,7 @@ $codeText
                     $caption .= "━━━━━━━━━━━━━━━\n";
                     $caption .= "👤 <b>کاربر:</b> {$targetUserName}\n";
                     $caption .= "🆔 <b>شناسه تلگرام:</b> <code>{$targetUser->tel_id}</code>\n";
+                    $caption .= $remarkLine;
                     $caption .= "━━━━━━━━━━━━━━━\n";
                     $caption .= "💳 <b>جزئیات پرداخت</b>\n";
                     $caption .= "🔢 <b>شماره تراکنش:</b> <code>{$payment->id}</code>\n";
@@ -4677,6 +5190,7 @@ $codeText
                     $caption .= "━━━━━━━━━━━━━━━\n";
                     $caption .= "👤 <b>کاربر:</b> {$targetUserName}\n";
                     $caption .= "🆔 <b>شناسه تلگرام:</b> <code>{$targetUser->tel_id}</code>\n";
+                    $caption .= $remarkLine;
                     $caption .= "━━━━━━━━━━━━━━━\n";
                     $caption .= "💳 <b>جزئیات پرداخت</b>\n";
                     $caption .= "💰 <b>مبلغ واریزی:</b> <code>{$price}</code> تومان\n";
@@ -4700,8 +5214,7 @@ $codeText
                 }
             } else {
 
-                $targetUser->balance = $payment->price + $targetUser->balance;
-                $targetUser->save();
+                $this->refundPaymentToWallet($payment, $targetUser, 'extra_failed');
 
                 $caption = "❌ <b>خرید حجم ناموفق بود</b>
 
@@ -4780,7 +5293,7 @@ $codeText
                 $order->reminded = 0;
                 $order->save();
 
-                $caption = "خرید حجم سرویس با موفقیت انجام شد.";
+                $caption = "خرید حجم سرویس با موفقیت انجام شد.\n\n{$remarkLine}";
 
                 $this->method = 'toUser';
                 $this->sendMessage([
@@ -4814,6 +5327,7 @@ $codeText
                     $caption .= "━━━━━━━━━━━━━━━\n";
                     $caption .= "👤 <b>کاربر:</b> {$targetUserName}\n";
                     $caption .= "🆔 <b>شناسه تلگرام:</b> <code>{$targetUser->tel_id}</code>\n";
+                    $caption .= $remarkLine;
                     $caption .= "━━━━━━━━━━━━━━━\n";
                     $caption .= "💳 <b>جزئیات پرداخت</b>\n";
                     $caption .= "🔢 <b>شماره تراکنش:</b> <code>{$payment->id}</code>\n";
@@ -4830,6 +5344,7 @@ $codeText
                     $caption .= "━━━━━━━━━━━━━━━\n";
                     $caption .= "👤 <b>کاربر:</b> {$targetUserName}\n";
                     $caption .= "🆔 <b>شناسه تلگرام:</b> <code>{$targetUser->tel_id}</code>\n";
+                    $caption .= $remarkLine;
                     $caption .= "━━━━━━━━━━━━━━━\n";
                     $caption .= "💳 <b>جزئیات پرداخت</b>\n";
                     $caption .= "💰 <b>مبلغ واریزی:</b> <code>{$price}</code> تومان\n";
@@ -4854,8 +5369,7 @@ $codeText
                 }
 
             } else {
-                $targetUser->balance = $payment->price + $targetUser->balance;
-                $targetUser->save();
+                $this->refundPaymentToWallet($payment, $targetUser, 'extra_failed');
 
                 $caption = "❌ <b>خرید حجم ناموفق بود</b>
 
@@ -5230,6 +5744,10 @@ $codeText
 
     protected function adminUserDetail($type = null)
     {
+        if (!$this->isAdmin) {
+            return $this->denyAdminAccess();
+        }
+
         $id = $type['id'];
 
         $currentUser = $this->user;
@@ -5332,8 +5850,8 @@ $codeText
                     'callback_data' => "type=adminUserSettings|id={$user->id}"
                 ],
                 [
-                    'text' => '💳 تراکنش‌ها',
-                    'callback_data' => "type=adminUserTransactions|id={$user->id}"
+                    'text' => '💳 تراکنش‌های کیف پول',
+                    'callback_data' => "type=adminWalletTransactions|id={$user->id}"
                 ]
             ],
 
@@ -5385,6 +5903,10 @@ $codeText
 
     protected function adminUserBalance($type)
     {
+        if (!$this->isAdmin) {
+            return $this->denyAdminAccess();
+        }
+
         $id = $type['id'];
 
         $user = User::find($id);
@@ -5413,6 +5935,10 @@ $codeText
                     'style' => 'danger'
                 ],
             ];
+        $keyboard[] = [[
+            'text' => '📋 لیست تراکنش‌های کیف پول',
+            'callback_data' => "type=adminWalletTransactions|id={$id}",
+        ]];
         $keyboard[] = $this->adminFooterButtons("type=adminUserDetail|id={$id}");
 
         $data = [
@@ -5429,6 +5955,10 @@ $codeText
 
     protected function adminUserBalanceAction($type = null)
     {
+        if (!$this->isAdmin) {
+            return $this->denyAdminAccess();
+        }
+
         $action = $type['value'];
         $id = $type['id'];
 
@@ -5501,7 +6031,22 @@ $codeText
 
     protected function adminUserBalanceActionBalance()
     {
-        $balance = (float)$this->text;
+        if (!$this->isAdmin) {
+            return $this->denyAdminAccess();
+        }
+
+        $validator = Validator::make(['amount' => $this->text], [
+            'amount' => ['required', 'integer', 'min:1'],
+        ], [
+            'amount.required' => '❌ مبلغ را وارد کنید.',
+            'amount.integer' => '❌ مبلغ باید یک عدد صحیح باشد.',
+            'amount.min' => '❌ مبلغ باید بیشتر از صفر باشد.',
+        ]);
+        if ($validator->fails()) {
+            return $this->sendTemporaryMessage($validator->errors()->first());
+        }
+
+        $balance = (int) $this->text;
 
         $user = $this->user;
 
@@ -5514,24 +6059,22 @@ $codeText
             return $this->sendTemporaryMessage('کاربر پیدا نشد');
         }
 
-        if ($action == 'increment') {
-
-            $targetUser->increment('balance', $balance);
-            $operationText = '➕ افزایش موجودی';
-
-        } else {
-
-            // جلوگیری از منفی شدن موجودی
-            if ($targetUser->balance < $balance) {
-
-                return $this->sendTemporaryMessage(
-                    '❌ موجودی کاربر کافی نیست و نمی‌تواند منفی شود'
-                );
-            }
-
-            $targetUser->decrement('balance', $balance);
-            $operationText = '➖ کاهش موجودی';
+        if (!in_array($action, ['increment', 'decrement'], true)) {
+            return $this->sendTemporaryMessage('عملیات کیف پول نامعتبر است.');
         }
+
+        $direction = $action === 'increment' ? 'credit' : 'debit';
+        $result = app(WpSyncService::class)->adminWalletAdjust(
+            $targetUser,
+            $direction,
+            $balance,
+            '',
+            ['admin_id' => $user->id]
+        );
+        if (!($result['ok'] ?? false)) {
+            return $this->sendTemporaryMessage($result['message'] ?? 'عملیات کیف پول انجام نشد.');
+        }
+        $operationText = $action === 'increment' ? '➕ افزایش موجودی' : '➖ کاهش موجودی';
 
         // رفرش دیتا
         $targetUser->refresh();
@@ -10880,6 +11423,10 @@ $codeText
     // Orders
     protected function adminOrdersList($data)
     {
+        if (!$this->isAdmin) {
+            return $this->denyAdminAccess();
+        }
+
         $page = $data['page'] ?? 1;
         $filter = $data['filter'] ?? null;
         $search = $data['search'] ?? null;
@@ -11076,6 +11623,10 @@ $codeText
 
     protected function adminOrderSingle($data)
     {
+        if (!$this->isAdmin) {
+            return $this->denyAdminAccess();
+        }
+
         $id = $data['id'] ?? null;
         $userId = $data['userId'] ?? null;
         $search = $data['search'] ?? null;
@@ -11142,6 +11693,10 @@ $codeText
             [
                 'text' => 'نمایش کد',
                 'callback_data' => "type=adminOrderShowCode|id={$order->id}",
+            ],
+            [
+                'text' => '📋 لیست تراکنش‌ها',
+                'callback_data' => "type=adminOrderTransactions|id={$order->id}",
             ],
         ];
 
