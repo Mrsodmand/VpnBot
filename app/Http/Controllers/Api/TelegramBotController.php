@@ -48,6 +48,7 @@ class TelegramBotController extends Controller
     protected $callbackData;
     protected $callbackId;
     protected $telegramSdk;
+    protected $actorId;
     protected $isSeller;
     protected $isAdmin;
     protected $from;
@@ -74,6 +75,7 @@ class TelegramBotController extends Controller
 
             $this->messageId = $data['message']['message_id'];
             $this->chatId = $data['message']['chat']['id'];
+            $this->actorId = $data['message']['from']['id'] ?? $this->chatId;
             $this->type = 'text';
             if (array_key_exists('photo', $data['message'])) {
                 $this->text = "photo";
@@ -91,6 +93,7 @@ class TelegramBotController extends Controller
             $this->callbackId = $data['callback_query']['id'];
             $this->type = 'callback_query';
             $this->from = $data['callback_query']['from'];
+            $this->actorId = $data['callback_query']['from']['id'] ?? $this->chatId;
 
             if (array_key_exists('photo', $data['callback_query']['message'])) {
                 $this->text = $data['callback_query']['message']['caption'];
@@ -126,12 +129,13 @@ class TelegramBotController extends Controller
             return $this->accountIsDisabled();
         }
 
+        if ($this->type === 'callback_query') {
+            $this->method = 'edit';
+            return $this->callbackQueryAction();
+        }
+
         if ($this->chatId > 0) {
             switch ($this->type) {
-                case "callback_query":
-                    $this->method = 'edit';
-                    return $this->callbackQueryAction();
-                    break;
                 case "text":
                     $this->method = 'send';
                     return $this->NormalTextAction();
@@ -787,7 +791,10 @@ class TelegramBotController extends Controller
     // Functions
     private function checkUser()
     {
-        $user = User::where('tel_id', $this->chatId)->first();
+        // In a group/channel callback, chat.id belongs to the conversation while
+        // from.id identifies the person who actually pressed the button.
+        $telegramUserId = $this->actorId ?? $this->chatId;
+        $user = User::where('tel_id', $telegramUserId)->first();
         if (is_null($user)) {
             $setting = Setting::where('key', 'join-bot')->first();
 
@@ -805,13 +812,18 @@ class TelegramBotController extends Controller
                 $firstName = array_key_exists('first_name', $this->telData['message']['from']) ? $this->telData['message']['from']['first_name'] : null;
                 $lastName = array_key_exists('last_name', $this->telData['message']['from']) ? $this->telData['message']['from']['last_name'] : null;
                 $username = array_key_exists('username', $this->telData['message']['from']) ? $this->telData['message']['from']['username'] : null;
+            } elseif (array_key_exists('callback_query', $this->telData)) {
+                $callbackUser = $this->telData['callback_query']['from'] ?? [];
+                $firstName = $callbackUser['first_name'] ?? null;
+                $lastName = $callbackUser['last_name'] ?? null;
+                $username = $callbackUser['username'] ?? null;
             }
 
             $user = new User();
             $user->first_name = $firstName;
             $user->last_Name = $lastName;
             $user->username = $username;
-            $user->tel_id = $this->chatId;
+            $user->tel_id = $telegramUserId;
             $user->path = $path;
             $user->balance = 0;
             $user->status = $status;
@@ -2689,7 +2701,7 @@ class TelegramBotController extends Controller
             return $this->denyAdminAccess();
         }
 
-        $id = $type['p_id'];
+        $id = (int) ($type['p_id'] ?? 0);
 
         $payment = Payment::find($id);
 
@@ -2715,35 +2727,25 @@ class TelegramBotController extends Controller
         }
         $payment->refresh();
 
+        if ($this->callbackId) {
+            $this->telegramSdk->answerCallback([
+                'callback_query_id' => $this->callbackId,
+                'text' => 'پرداخت رد و تراکنش لغو شد.',
+                'show_alert' => false,
+                'cache_time' => 1,
+            ]);
+        }
+
         /*
         |--------------------------------------------------------------------------
         | Channel ID
         |--------------------------------------------------------------------------
         */
 
-        $channelId = null;
-
-        $transactionChannel = Setting::where('key', 'cart_be_cart_id')->first();
+        // Always edit the exact chat message whose button was pressed. The
+        // configured receipt destination may have changed after it was sent.
+        $channelId = $this->chatId;
         $support_id = Setting::where('key', 'support_id')->first();
-
-
-        if (
-            !is_null($transactionChannel) &&
-            !empty($transactionChannel->value)
-        ) {
-            $channelId = $transactionChannel->value;
-        } else {
-
-            $admin = User::where('is_admin', 1)->first();
-
-            if ($admin) {
-                $channelId = $admin->tel_id;
-            }
-        }
-
-        if (!$channelId) {
-            return $this->sendTemporaryMessage('❌ مقصد ارسال گزارش یافت نشد.');
-        }
 
         /*
         |--------------------------------------------------------------------------
@@ -2816,13 +2818,14 @@ class TelegramBotController extends Controller
                 'message_id' => $this->messageId,
                 'caption' => $caption,
                 'parse_mode' => 'HTML',
+                'reply_markup' => json_encode(['inline_keyboard' => []]),
             ]);
         } else {
             $this->sendMessage([
                 'chat_id' => $channelId,
                 'text' => $caption,
                 'parse_mode' => 'HTML',
-
+                'reply_markup' => json_encode(['inline_keyboard' => []]),
             ], 'message');
         }
         $userText = "❌ <b>پرداخت شما تایید نشد</b>\n\n";
