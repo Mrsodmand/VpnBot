@@ -33,7 +33,7 @@ class OrderCountryResolver
                 'pre_order_id' => $this->positiveIntFrom($detail, ['preOrderId', 'pre_order_id', 'pre-order-id']),
                 'inbound_id' => $this->positiveInt($order->inbound_id),
                 'panel_id' => $this->positiveInt($order->panel_id),
-                'is_all_countries' => $this->isAllCountries($detail),
+                'is_all_countries' => $this->isAllCountries($detail) || $this->isLegacyAllCountriesOrder($order),
             ]];
         });
 
@@ -86,12 +86,12 @@ class OrderCountryResolver
             ->pluck('name', 'id');
 
         return $metadata->map(function (array $item) use ($inbounds, $legacyInbounds, $panels, $countryNames) {
-            if ($item['direct_name']) {
-                return $item['direct_name'];
-            }
-
             if ($item['is_all_countries']) {
                 return self::ALL_COUNTRIES;
+            }
+
+            if ($item['direct_name']) {
+                return $item['direct_name'];
             }
 
             if ($item['pre_order_name']) {
@@ -154,6 +154,12 @@ class OrderCountryResolver
         }
 
         return false;
+    }
+
+    private function isLegacyAllCountriesOrder(Orders $order): bool
+    {
+        return strtolower((string) $order->system_type) === 'pasarguard'
+            && (int) $order->inbound_id === 0;
     }
 
     private function positiveIntFrom(array $data, array $keys): ?int

@@ -239,7 +239,6 @@ class TelegramBotController extends Controller
                 return $this->clientOrders($type);
                 break;
             case "clientSingleOrder":
-                $this->deleteChat();
                 return $this->clientSingleOrder($type);
                 break;
             case "clientChangeConfigName":
@@ -3309,6 +3308,15 @@ $codeText
         $id = $data['id'] ?? null;
         $user = $this->user;
 
+        if ($this->callbackId) {
+            $this->telegramSdk->answerCallback([
+                'callback_query_id' => $this->callbackId,
+                'text' => 'در حال دریافت جزئیات سفارش…',
+                'show_alert' => false,
+                'cache_time' => 0,
+            ]);
+        }
+
         if (!$id) {
             return $this->telegramSdk->sendMessage([
                 'chat_id' => $user->tel_id,
@@ -3414,7 +3422,15 @@ $codeText
         $jdf = new Jdf();
         $expireTime = $order->expire_at ? $jdf->jdate('H:i:s d-m-Y', strtotime($order->expire_at)) : 'اطلاعات یافت نشد';
 
-        $configDetail = getConfigDetail($order);
+        try {
+            $configDetail = getConfigDetail($order);
+        } catch (\Throwable $exception) {
+            Log::warning('Could not load live order details', [
+                'order_id' => $order->id,
+                'message' => $exception->getMessage(),
+            ]);
+            $configDetail = ['status' => false];
+        }
         $warning = '';
         if ($configDetail['status'] ?? false) {
             $lifecycle->applyConfigDetail($order, $configDetail);
@@ -3446,7 +3462,10 @@ $codeText
 
         $configCodeRaw = $code ?? '-';
 
-        $subUrl = rtrim($panel->sub_address, '/') . $order->sub_id;
+        $subId = (string) $order->sub_id;
+        $subUrl = preg_match('#^https?://#i', $subId)
+            ? $subId
+            : rtrim((string) $panel->sub_address, '/') . '/' . ltrim($subId, '/');
 
         $subUrlSafe = htmlspecialchars($subUrl, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
@@ -3473,26 +3492,44 @@ $codeText
         $qrValue = $code ?: $subUrl;
         $photo = "https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=" . urlencode($qrValue);
 
-        if (mb_strlen(strip_tags($message), 'UTF-8') <= 900) {
-            return $this->telegramSdk->sendPhoto([
-                'chat_id' => $user->tel_id,
-                'photo' => $photo,
-                'caption' => $message,
-                'parse_mode' => 'HTML',
-                'reply_markup' => json_encode([
-                    'inline_keyboard' => $buttons,
-                ]),
+        $replyMarkup = json_encode(['inline_keyboard' => $buttons]);
+        $shortCaption = mb_strlen(strip_tags($message), 'UTF-8') <= 900;
+        $photoParams = [
+            'chat_id' => $user->tel_id,
+            'photo' => $photo,
+            'caption' => $shortCaption ? $message : "✅ جزئیات سفارش #{$order->id}",
+            'parse_mode' => 'HTML',
+        ];
+        if ($shortCaption) {
+            $photoParams['reply_markup'] = $replyMarkup;
+        }
+        $photoResult = $this->telegramSdk->sendPhoto($photoParams);
+
+        if (!empty($photoResult['ok']) && $shortCaption) {
+            $this->deleteChat();
+
+            return $photoResult;
+        }
+
+        if (empty($photoResult['ok'])) {
+            Log::warning('Telegram could not send order QR; falling back to text', [
+                'order_id' => $order->id,
+                'telegram_response' => $photoResult,
             ]);
         }
 
-        return $this->telegramSdk->sendPhoto([
+        $messageResult = $this->telegramSdk->sendMessage([
             'chat_id' => $user->tel_id,
-            'photo' => $photo,
-            'caption' => $message,
-            'reply_markup' => json_encode([
-                'inline_keyboard' => $buttons,
-            ]),
+            'text' => $message,
+            'parse_mode' => 'HTML',
+            'reply_markup' => $replyMarkup,
         ]);
+
+        if (!empty($messageResult['ok'])) {
+            $this->deleteChat();
+        }
+
+        return $messageResult;
     }
 
     protected function clientChangeConfigName($data)

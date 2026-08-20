@@ -1016,10 +1016,15 @@ function getConfigDetail($order)
             }
         }
         $left = $totalGb - $totalUsed;
-        $configResult = $pasarGuard->getUserConfig($order->uid);
-        $code = is_array($configResult) && ($configResult['status'] ?? false)
-            ? ($configResult['body'] ?? null)
-            : ($order->detail['code'] ?? null);
+        $code = $order->detail['code'] ?? null;
+        // All-country PasarGuard orders use their subscription URL. Fetching a
+        // multi-link config here is unnecessary and can delay the Telegram callback.
+        if ((int) $order->inbound_id !== 0) {
+            $configResult = $pasarGuard->getUserConfig($order->uid);
+            $code = is_array($configResult) && ($configResult['status'] ?? false)
+                ? ($configResult['body'] ?? null)
+                : $code;
+        }
         $providerStatus = $result['status'] ?? null;
     } else {
         $result = clientGetSanaieSinlgeDetail($panel, $order);
