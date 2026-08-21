@@ -9,6 +9,7 @@ use App\Models\HegzaUser;
 use App\Models\Message;
 use App\Models\TelegramData;
 use App\Models\User;
+use App\Services\OrderLifecycleNotificationService;
 use App\Services\OrderLifecycleService;
 use App\Services\Telegram;
 use Illuminate\Http\Request;
@@ -112,9 +113,9 @@ class JobController extends Controller
         return response()->json($lifecycle->synchronizeAll());
     }
 
-    public function remindToRenewOrder()
+    public function remindToRenewOrder(OrderLifecycleNotificationService $notifications)
     {
-
+        return response()->json($notifications->sendDueNotifications());
     }
 
 
