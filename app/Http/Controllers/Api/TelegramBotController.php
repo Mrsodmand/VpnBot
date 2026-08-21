@@ -1605,6 +1605,10 @@ class TelegramBotController extends Controller
         $payment->status = 0;
         $payment->type = 4;
         $payment->expired_at = Carbon::now();
+        $payment->detail = [
+            'cart-number' => $card->cart,
+            'cart-name' => $card->name,
+        ];
         $payment->save();
 
         $user = $this->user;
@@ -2375,6 +2379,79 @@ class TelegramBotController extends Controller
 
     }
 
+    private function cartReceiptWasSubmitted(Payment $payment): bool
+    {
+        $detail = is_array($payment->detail)
+            ? $payment->detail
+            : (json_decode((string) $payment->detail, true) ?: []);
+        $submissionState = (string) ($detail['receipt_submission_state'] ?? '');
+
+        if ($submissionState === 'submitted') {
+            return true;
+        }
+
+        if ($submissionState === 'sending') {
+            try {
+                $startedAt = Carbon::parse($detail['receipt_submission_started_at'] ?? null);
+
+                return $startedAt->greaterThan(now()->subMinutes(2));
+            } catch (\Throwable) {
+                return true;
+            }
+        }
+
+        // Receipts saved before receipt_submission_state was introduced.
+        return !empty($detail['receipt_submitted_at']) || !empty($detail['value']);
+    }
+
+    private function cartReceiptStatusLabel(Payment $payment): string
+    {
+        return match ((string) $payment->status) {
+            '1' => '✅ تایید شده',
+            '-1', 'rejected' => '❌ رد تراکنش',
+            '-2' => '↩️ مبلغ برگشت داده شده',
+            '0' => $this->cartReceiptWasSubmitted($payment)
+                ? '⏳ در حال بررسی'
+                : '📤 در انتظار ارسال رسید',
+            default => 'ℹ️ وضعیت نامشخص',
+        };
+    }
+
+    private function sendCartReceiptState(Payment $payment)
+    {
+        $hasReceipt = $this->cartReceiptWasSubmitted($payment);
+        $text = $hasReceipt
+            ? "رسید این تراکنش قبلاً ارسال شده است.\n\n"
+            : "امکان ارسال رسید برای این تراکنش وجود ندارد.\n\n";
+        $text .= "🔢 شماره تراکنش: <code>{$payment->id}</code>\n";
+        $text .= "وضعیت: <b>{$this->cartReceiptStatusLabel($payment)}</b>";
+
+        $this->updatePath('start');
+        if ($this->callbackId) {
+            $this->telegramSdk->answerCallback([
+                'callback_query_id' => $this->callbackId,
+                'text' => strip_tags($this->cartReceiptStatusLabel($payment)),
+                'show_alert' => false,
+                'cache_time' => 1,
+            ]);
+        }
+
+        $this->method = 'toUser';
+
+        return $this->sendMessage([
+            'chat_id' => $this->chatId,
+            'text' => $text,
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => [[[
+                    'text' => 'منو اصلی',
+                    'callback_data' => 'type=home',
+                    'style' => 'primary',
+                ]]],
+            ]),
+        ], 'message');
+    }
+
     protected function paymentCartBeCart($type)
     {
         $id = $type['id'] ?? null;
@@ -2386,8 +2463,8 @@ class TelegramBotController extends Controller
         if (!$payment) {
             return $this->sendTemporaryMessage('❌ پرداخت پیدا نشد');
         }
-        if ((string) $payment->status !== '0') {
-            return $this->sendTemporaryMessage('این تراکنش قبلاً پردازش شده است.');
+        if ((string) $payment->status !== '0' || $this->cartReceiptWasSubmitted($payment)) {
+            return $this->sendCartReceiptState($payment);
         }
 
         if ((int) $payment->type === 2) {
@@ -2425,6 +2502,13 @@ class TelegramBotController extends Controller
 
         $cardNumber = $cart->cart ?? 'اطلاعات یافت نشد';
         $cardName = $cart->name ?? '—';
+
+        $paymentDetail = is_array($payment->detail) ? $payment->detail : [];
+        $paymentDetail['cart-number'] = $cardNumber;
+        $paymentDetail['cart-name'] = $cardName;
+        $payment->method = 'cart-be-cart';
+        $payment->detail = $paymentDetail;
+        $payment->save();
 
         $tel_detail = is_array($user->tel_detail) ? $user->tel_detail : [];
         $tel_detail['payment-id'] = $payment->id;
@@ -2494,6 +2578,29 @@ class TelegramBotController extends Controller
 
     protected function paymentSendReceipt($type)
     {
+        $payment = Payment::where('id', (int) ($type['id'] ?? 0))
+            ->where('user_id', $this->user->id)
+            ->first();
+
+        if (!$payment) {
+            return $this->sendTemporaryMessage('❌ پرداخت پیدا نشد.');
+        }
+
+        if ((string) $payment->status !== '0' || $this->cartReceiptWasSubmitted($payment)) {
+            return $this->sendCartReceiptState($payment);
+        }
+
+        $paymentDetail = is_array($payment->detail) ? $payment->detail : [];
+        $telDetail = is_array($this->user->tel_detail) ? $this->user->tel_detail : [];
+        $samePayment = (int) ($telDetail['payment-id'] ?? 0) === (int) $payment->id;
+        $telDetail['payment-id'] = $payment->id;
+        $telDetail['payment-type'] = 'cart-be-cart';
+        $telDetail['payment-cart-number'] = $paymentDetail['cart-number']
+            ?? ($samePayment ? ($telDetail['payment-cart-number'] ?? null) : null);
+        $telDetail['payment-cart-name'] = $paymentDetail['cart-name']
+            ?? ($samePayment ? ($telDetail['payment-cart-name'] ?? null) : null);
+        $this->user->tel_detail = $telDetail;
+        $this->user->save();
 
         $this->updatePath('sendCartBeCartReceipt');
         $text = headTitle('💳 پرداخت کارت به کارت');
@@ -2521,22 +2628,25 @@ class TelegramBotController extends Controller
     protected function paymentSubmitCartBeCartReceipt()
     {
         $user = $this->user;
-        $tel_detail = $user->tel_detail ?? [];
+        $telDetail = is_array($user->tel_detail) ? $user->tel_detail : [];
+        $paymentId = (int) ($telDetail['payment-id'] ?? 0);
 
-        $paymentId = $tel_detail['payment-id'] ?? null;
-        $paymentCardNumber = $tel_detail['payment-cart-number'] ?? null;
-        $paymentCardName = $tel_detail['payment-cart-name'] ?? null;
+        $payment = Payment::where('id', $paymentId)
+            ->where('user_id', $user->id)
+            ->first();
+        if (!$payment) {
+            return $this->sendTemporaryMessage('❌ تراکنش معتبر پیدا نشد.');
+        }
 
-//        $this->updatePath('start');
+        if ((string) $payment->status !== '0' || $this->cartReceiptWasSubmitted($payment)) {
+            return $this->sendCartReceiptState($payment);
+        }
 
         if (empty($this->messageId)) {
             return $this->sendTemporaryMessage('❌ پیام یا رسیدی ارسال نشده است.');
         }
 
-
         $channelId = null;
-
-        // تنظیمات کانال تایید تراکنش
         $transactionChannel = Setting::where('key', 'cart_be_cart_id')->first();
         if (
             !is_null($transactionChannel) &&
@@ -2568,34 +2678,49 @@ class TelegramBotController extends Controller
             return $this->sendTemporaryMessage('❌ دریافت رسید ناموفق بود؛ لطفاً دوباره ارسال کنید.');
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Forward receipt
-        |--------------------------------------------------------------------------
-        */
+        $reservationToken = (string) Str::uuid();
+        $payment = DB::transaction(function () use ($paymentId, $user, $telDetail, $value, $reservationToken) {
+            $lockedPayment = Payment::where('id', $paymentId)
+                ->where('user_id', $user->id)
+                ->lockForUpdate()
+                ->first();
 
-//        $data = [
-//            'chat_id' => $channelId,
-//            'from_chat_id' => $this->chatId,
-//            'message_id' => $this->messageId,
-//        ];
-//
-//        $this->telegramSdk->forwardMessage($data);
-        /*
-        |--------------------------------------------------------------------------
-        | Send info message to admin
-        |--------------------------------------------------------------------------
-        */
+            if (
+                !$lockedPayment
+                || (string) $lockedPayment->status !== '0'
+                || $this->cartReceiptWasSubmitted($lockedPayment)
+            ) {
+                return null;
+            }
+
+            $detail = is_array($lockedPayment->detail) ? $lockedPayment->detail : [];
+            $detail['cart-number'] = $detail['cart-number']
+                ?? ($telDetail['payment-cart-number'] ?? null);
+            $detail['cart-name'] = $detail['cart-name']
+                ?? ($telDetail['payment-cart-name'] ?? null);
+            $detail['value'] = $value;
+            $detail['receipt_submission_state'] = 'sending';
+            $detail['receipt_submission_started_at'] = now()->toDateTimeString();
+            $detail['receipt_submission_token'] = $reservationToken;
+
+            $lockedPayment->method = 'cart-be-cart';
+            $lockedPayment->detail = $detail;
+            $lockedPayment->save();
+
+            return $lockedPayment;
+        });
+
+        if (!$payment) {
+            $currentPayment = Payment::where('id', $paymentId)
+                ->where('user_id', $user->id)
+                ->first();
+
+            return $currentPayment
+                ? $this->sendCartReceiptState($currentPayment)
+                : $this->sendTemporaryMessage('❌ تراکنش معتبر پیدا نشد.');
+        }
 
         $caption = "💳 <b>رسید جدید کارت به کارت</b>\n\n";
-
-        $payment = Payment::where('id', $paymentId)
-            ->where('user_id', $user->id)
-            ->where('status', 0)
-            ->first();
-        if (!$payment) {
-            return $this->sendTemporaryMessage('❌ تراکنش معتبر یا در انتظار بررسی پیدا نشد.');
-        }
         $paymentType = __('payment.type.' . $payment->type);
         $caption .= "💥 نوع تراکنش: <code>{$paymentType}</code>\n";
         $paymentRemark = $this->paymentOrderRemark($payment);
@@ -2604,21 +2729,9 @@ class TelegramBotController extends Controller
         }
 
         $paymentDetail = is_array($payment->detail) ? $payment->detail : [];
-        if ($paymentRemark !== null) {
-            $paymentDetail['remark'] = $paymentRemark;
-        }
-        $paymentDetail['cart-number'] = $paymentCardNumber;
-        $paymentDetail['cart-name'] = $paymentCardName;
-        $paymentDetail['value'] = $value;
-
-
-        $payment->method = 'cart-be-cart';
-        $payment->detail = $paymentDetail;
-        $payment->save();
-
-        $Price = $payment->price;
-
-        $Price = number_format($Price);
+        $paymentCardNumber = $paymentDetail['cart-number'] ?? '—';
+        $paymentCardName = $paymentDetail['cart-name'] ?? '—';
+        $price = number_format($payment->price);
         $caption .= "👤 کاربر\n";
         if (!empty($user->username)) {
             $caption .= "@{$user->username}\n";
@@ -2630,20 +2743,13 @@ class TelegramBotController extends Controller
         $caption .= "💰 شماره تراکنش: <code>{$payment->id}</code>\n";
         $caption .= "💰 شماره کارت: <code>{$paymentCardNumber}</code>\n";
         $caption .= "👤 صاحب کارت: {$paymentCardName}\n";
-        $caption .= "🧾 مبلغ تراکنش: <code>{$Price}</code> تومان\n\n";
+        $caption .= "🧾 مبلغ تراکنش: <code>{$price}</code> تومان\n\n";
         $caption .= "رسید کاربر: \n";
 
-
         $this->method = 'toUser';
-
-        /*
-        |--------------------------------------------------------------------------
-        | Response to user
-        |--------------------------------------------------------------------------
-        */
         if ($this->fileId == false) {
-            $caption .= $value;
-            $this->sendMessage([
+            $caption .= $this->escapeHtml($value);
+            $sendResult = $this->sendMessage([
                 'chat_id' => $channelId,
                 'text' => $caption,
                 'parse_mode' => 'HTML',
@@ -2652,12 +2758,12 @@ class TelegramBotController extends Controller
                         [
                             [
                                 'text' => '✅ تایید پرداخت',
-                                'callback_data' => "type=adminConfirmCartReceipt|p_id={$paymentId}",
+                                'callback_data' => "type=adminConfirmCartReceipt|p_id={$payment->id}",
                                 'style' => 'success'
                             ],
                             [
                                 'text' => '❌ رد پرداخت',
-                                'callback_data' => "type=adminRejectCartReceipt|p_id={$paymentId}",
+                                'callback_data' => "type=adminRejectCartReceipt|p_id={$payment->id}",
                                 'style' => 'danger'
                             ]
                         ]
@@ -2665,7 +2771,7 @@ class TelegramBotController extends Controller
                 ])
             ], 'message');
         } else {
-            $this->telegramSdk->sendPhoto([
+            $sendResult = $this->telegramSdk->sendPhoto([
                 'chat_id' => $channelId,
                 'photo' => url($value),
                 'caption' => $caption,
@@ -2675,12 +2781,12 @@ class TelegramBotController extends Controller
                         [
                             [
                                 'text' => '✅ تایید پرداخت',
-                                'callback_data' => "type=adminConfirmCartReceipt|p_id={$paymentId}",
+                                'callback_data' => "type=adminConfirmCartReceipt|p_id={$payment->id}",
                                 'style' => 'success'
                             ],
                             [
                                 'text' => '❌ رد پرداخت',
-                                'callback_data' => "type=adminRejectCartReceipt|p_id={$paymentId}",
+                                'callback_data' => "type=adminRejectCartReceipt|p_id={$payment->id}",
                                 'style' => 'danger'
                             ]
                         ]
@@ -2689,9 +2795,50 @@ class TelegramBotController extends Controller
             ]);
         }
 
+        if (empty($sendResult['ok'])) {
+            DB::transaction(function () use ($payment, $reservationToken) {
+                $lockedPayment = Payment::where('id', $payment->id)->lockForUpdate()->first();
+                $detail = is_array($lockedPayment?->detail) ? $lockedPayment->detail : [];
+
+                if (($detail['receipt_submission_token'] ?? null) !== $reservationToken) {
+                    return;
+                }
+
+                unset(
+                    $detail['value'],
+                    $detail['receipt_submission_state'],
+                    $detail['receipt_submission_started_at'],
+                    $detail['receipt_submission_token']
+                );
+                $lockedPayment->detail = $detail;
+                $lockedPayment->save();
+            });
+
+            return $this->sendTemporaryMessage('❌ ارسال رسید برای بررسی ناموفق بود؛ لطفاً دوباره تلاش کنید.');
+        }
+
+        DB::transaction(function () use ($payment, $reservationToken) {
+            $lockedPayment = Payment::where('id', $payment->id)->lockForUpdate()->first();
+            $detail = is_array($lockedPayment?->detail) ? $lockedPayment->detail : [];
+
+            if (($detail['receipt_submission_token'] ?? null) !== $reservationToken) {
+                return;
+            }
+
+            $detail['receipt_submission_state'] = 'submitted';
+            $detail['receipt_submitted_at'] = now()->toDateTimeString();
+            unset($detail['receipt_submission_started_at'], $detail['receipt_submission_token']);
+            $lockedPayment->detail = $detail;
+            $lockedPayment->save();
+        });
+
+        $payment->refresh();
+        $statusLabel = $this->cartReceiptStatusLabel($payment);
+
         return $this->sendMessage([
             'chat_id' => $this->chatId,
-            'text' => "✅ رسید شما با موفقیت ارسال شد و پس از بررسی تایید خواهد شد.",
+            'text' => "✅ رسید شما با موفقیت ارسال شد.\n\n🔢 شماره تراکنش: <code>{$payment->id}</code>\nوضعیت: <b>{$statusLabel}</b>",
+            'parse_mode' => 'HTML',
         ], 'message');
     }
 
@@ -2715,6 +2862,7 @@ class TelegramBotController extends Controller
         |--------------------------------------------------------------------------
         */
 
+        $alreadyRejected = false;
         $updated = Payment::where('id', $payment->id)
             ->where('status', 0)
             ->update([
@@ -2723,14 +2871,30 @@ class TelegramBotController extends Controller
                 'updated_at' => now(),
             ]);
         if ($updated !== 1) {
-            return $this->sendTemporaryMessage('این تراکنش قبلاً پردازش شده است.');
+            $payment->refresh();
+            if ((string) $payment->status === '-1') {
+                $alreadyRejected = true;
+            } else {
+                if ($this->callbackId) {
+                    return $this->telegramSdk->answerCallback([
+                        'callback_query_id' => $this->callbackId,
+                        'text' => 'این تراکنش قبلاً پردازش شده است: ' . strip_tags($this->cartReceiptStatusLabel($payment)),
+                        'show_alert' => true,
+                        'cache_time' => 1,
+                    ]);
+                }
+
+                return $this->sendTemporaryMessage('این تراکنش قبلاً پردازش شده است.');
+            }
         }
         $payment->refresh();
 
         if ($this->callbackId) {
             $this->telegramSdk->answerCallback([
                 'callback_query_id' => $this->callbackId,
-                'text' => 'پرداخت رد و تراکنش لغو شد.',
+                'text' => $alreadyRejected
+                    ? 'این تراکنش قبلاً رد شده بود؛ پیام به‌روزرسانی شد.'
+                    : 'پرداخت رد و تراکنش لغو شد.',
                 'show_alert' => false,
                 'cache_time' => 1,
             ]);
@@ -2753,7 +2917,9 @@ class TelegramBotController extends Controller
         |--------------------------------------------------------------------------
         */
 
-        $adminUser = $this->user;
+        $adminUser = $alreadyRejected && $payment->admin_id
+            ? (User::find($payment->admin_id) ?? $this->user)
+            : $this->user;
         $targetUser = User::find($payment->user_id);
 
         if (!$targetUser) {
@@ -2828,6 +2994,11 @@ class TelegramBotController extends Controller
                 'reply_markup' => json_encode(['inline_keyboard' => []]),
             ], 'message');
         }
+
+        if ($alreadyRejected) {
+            return;
+        }
+
         $userText = "❌ <b>پرداخت شما تایید نشد</b>\n\n";
         $userText .= "🔢 شماره تراکنش: <code>{$payment->id}</code>\n";
         $userText .= "💰 مبلغ: <code>{$price}</code> تومان\n\n";
