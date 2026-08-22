@@ -344,7 +344,7 @@ class AdminRejectCartReceiptTest extends TestCase
                 'message_id' => 78,
                 'from' => ['id' => 1001, 'first_name' => 'Admin'],
                 'chat' => ['id' => 1001, 'type' => 'private'],
-                'text' => 'ir46 0560 6118 2800 6296 7533 01',
+                'text' => 'IR460560611828006296753301',
             ],
         ]));
         $saveTelegram = new FakeTelegramForReceiptRejection();

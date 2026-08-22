@@ -30,6 +30,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 
@@ -9411,6 +9412,22 @@ $codeText
             return $this->sendTemporaryMessage('فیلد کارت معتبر نیست');
         }
 
+        if ($key === 'sheba' && !Schema::hasColumn('carts', 'sheba')) {
+            $text = "❌ ستون شماره شبا هنوز به دیتابیس اضافه نشده است.\n"
+                . "ابتدا migrationهای پروژه را اجرا کنید و سپس همین مقدار را دوباره ارسال کنید.";
+
+            return $this->sendMessage([
+                'chat_id' => $this->chatId,
+                'text' => $text,
+                'parse_mode' => 'HTML',
+                'reply_markup' => json_encode([
+                    'inline_keyboard' => [
+                        $this->adminFooterButtons("type=adminCartDetail|id={$id}"),
+                    ],
+                ]),
+            ], 'message');
+        }
+
         /*
         |--------------------------------------------------------------------------
         | Custom Fields
@@ -9424,14 +9441,32 @@ $codeText
         } elseif ($key === 'sheba' && !empty($type['clear'])) {
             $value = null;
         } else {
-            $value = trim((string) $this->text);
-            if ($key === 'sheba') {
-                $value = $value === '' ? null : strtoupper(preg_replace('/\s+/', '', $value));
-            }
+            // Text fields, including cart and sheba, follow the exact same
+            // update path and are stored exactly as the admin entered them.
+            $value = $this->text;
         }
 
-        Carts::where('id', $id)
-            ->update([$key => $value]);
+        try {
+            Carts::where('id', $id)
+                ->update([$key => $value]);
+        } catch (\Throwable $exception) {
+            Log::error('Failed to update card payment field.', [
+                'cart_id' => $id,
+                'field' => $key,
+                'error' => $exception->getMessage(),
+            ]);
+
+            return $this->sendMessage([
+                'chat_id' => $this->chatId,
+                'text' => '❌ ذخیره اطلاعات کارت انجام نشد. خطا در گزارش‌های سیستم ثبت شد.',
+                'parse_mode' => 'HTML',
+                'reply_markup' => json_encode([
+                    'inline_keyboard' => [
+                        $this->adminFooterButtons("type=adminCartDetail|id={$id}"),
+                    ],
+                ]),
+            ], 'message');
+        }
 
         $this->updatePath('start');
 
