@@ -150,6 +150,186 @@ class OrderLifecycleService
     }
 
     /**
+     * Refresh the statuses shown in a customer's order list.
+     *
+     * PasarGuard is queried once per panel (not once per order), and panels that
+     * only contain cancelled/inactive orders are never queried.
+     */
+    public function refreshPasarguardListStatuses(int $userId): array
+    {
+        $this->reconcileTimeStatuses($userId);
+
+        $panelIds = Panels::query()
+            ->where('system_type', 'pasarguard')
+            ->pluck('id');
+
+        if ($panelIds->isEmpty()) {
+            return ['checked' => 0, 'updated' => 0, 'failed' => 0, 'requests' => 0];
+        }
+
+        $ordersByPanel = Orders::query()
+            ->where('user_id', $userId)
+            ->whereIn('panel_id', $panelIds)
+            ->whereNotNull('uid')
+            ->get()
+            ->reject(fn (Orders $order) => $this->normalizeStatus($order->status) === Orders::STATUS_INACTIVE)
+            ->groupBy('panel_id');
+
+        if ($ordersByPanel->isEmpty()) {
+            return ['checked' => 0, 'updated' => 0, 'failed' => 0, 'requests' => 0];
+        }
+
+        $panels = Panels::query()
+            ->whereIn('id', $ordersByPanel->keys())
+            ->get()
+            ->keyBy('id');
+
+        $checked = 0;
+        $updated = 0;
+        $failed = 0;
+        $requests = 0;
+
+        foreach ($ordersByPanel as $panelId => $orders) {
+            $panel = $panels->get($panelId);
+            if (!$panel) {
+                $failed += $orders->count();
+                continue;
+            }
+
+            try {
+                $requests++;
+                $response = $this->fetchPasarguardUsers($panel);
+                $usersById = $this->pasarguardUsersById($response);
+
+                if ($usersById === null) {
+                    $failed += $orders->count();
+                    Log::warning('Could not parse PasarGuard users while refreshing order list', [
+                        'panel_id' => $panel->id,
+                        'user_id' => $userId,
+                    ]);
+                    continue;
+                }
+
+                foreach ($orders as $order) {
+                    $remoteUser = $usersById[(string) $order->uid] ?? null;
+                    if (!is_array($remoteUser)) {
+                        $failed++;
+                        continue;
+                    }
+
+                    $before = (string) $order->status;
+                    $this->applyPasarguardListStatus($order, $remoteUser);
+                    $checked++;
+                    if ($before !== (string) $order->status) {
+                        $updated++;
+                    }
+                }
+            } catch (Throwable $exception) {
+                $failed += $orders->count();
+                Log::warning('PasarGuard order-list status refresh failed', [
+                    'panel_id' => $panel->id,
+                    'user_id' => $userId,
+                    'message' => $exception->getMessage(),
+                ]);
+            }
+        }
+
+        return compact('checked', 'updated', 'failed', 'requests');
+    }
+
+    protected function fetchPasarguardUsers(Panels $panel): mixed
+    {
+        $pasarGuard = new PasarGuard([
+            'url' => $panel->url,
+            'username' => $panel->username,
+            'password' => $panel->password,
+            'id' => $panel->id,
+        ]);
+
+        return $pasarGuard->getAllUsers();
+    }
+
+    private function pasarGuardUsersById(mixed $response): ?array
+    {
+        if (!is_array($response) || ($response['status'] ?? null) === false) {
+            return null;
+        }
+
+        $users = array_is_list($response) ? $response : null;
+        foreach (['users', 'items', 'data'] as $key) {
+            if (isset($response[$key]) && is_array($response[$key]) && array_is_list($response[$key])) {
+                $users = $response[$key];
+                break;
+            }
+        }
+
+        if ($users === null) {
+            return null;
+        }
+
+        $usersById = [];
+        foreach ($users as $user) {
+            if (!is_array($user)) {
+                continue;
+            }
+
+            $id = $user['id'] ?? $user['uid'] ?? $user['user_id'] ?? $user['uuid'] ?? null;
+            if ($id !== null && $id !== '') {
+                $usersById[(string) $id] = $user;
+            }
+        }
+
+        return $usersById;
+    }
+
+    private function applyPasarguardListStatus(Orders $order, array $remoteUser): void
+    {
+        if (!empty($remoteUser['expire'])) {
+            try {
+                $order->expire_at = Carbon::parse($remoteUser['expire']);
+            } catch (Throwable) {
+                // An invalid remote expiry must not erase the valid local value.
+            }
+        }
+
+        $this->refreshTimeStatus($order);
+        $timeStatus = $this->normalizeStatus($order->status);
+        $providerStatus = strtolower((string) ($remoteUser['status'] ?? ''));
+
+        if ($this->providerIsInactive($providerStatus)) {
+            $order->status = Orders::STATUS_INACTIVE;
+        } elseif (in_array($timeStatus, [Orders::STATUS_SUSPENDED, Orders::STATUS_INACTIVE], true)) {
+            $order->status = $timeStatus;
+        } elseif (in_array($providerStatus, ['suspended', 'expired', 'on_hold'], true)) {
+            $order->status = Orders::STATUS_SUSPENDED;
+        } elseif ($providerStatus === 'limited' || $this->pasarguardDataIsExhausted($remoteUser)) {
+            $order->status = Orders::STATUS_DATA_EXHAUSTED;
+        } else {
+            $order->status = Orders::STATUS_ACTIVE;
+        }
+
+        $detail = is_array($order->detail) ? $order->detail : [];
+        $lifecycleDetail = is_array($detail['lifecycle'] ?? null) ? $detail['lifecycle'] : [];
+        $detail['lifecycle'] = array_merge($lifecycleDetail, [
+            'last_checked_at' => now()->toDateTimeString(),
+            'provider_status' => $remoteUser['status'] ?? null,
+        ]);
+        $order->detail = $detail;
+        $order->save();
+    }
+
+    private function pasarguardDataIsExhausted(array $remoteUser): bool
+    {
+        $limit = $remoteUser['data_limit'] ?? null;
+        $used = $remoteUser['used_traffic'] ?? null;
+
+        return is_numeric($limit)
+            && is_numeric($used)
+            && (float) $limit > 0
+            && (float) $used >= (float) $limit;
+    }
+
+    /**
      * Scheduler entry point: enforce time transitions, disable cancelled clients,
      * and refresh volume status for renewable orders.
      */

@@ -3744,8 +3744,17 @@ $codeText
         $search = $data['search'] ?? null;
 
         $user = $this->user;
+        if ($this->callbackId) {
+            $this->telegramSdk->answerCallback([
+                'callback_query_id' => $this->callbackId,
+                'text' => 'در حال به‌روزرسانی وضعیت سفارش‌ها…',
+                'show_alert' => false,
+                'cache_time' => 0,
+            ]);
+        }
+
         $lifecycle = app(OrderLifecycleService::class);
-        $lifecycle->reconcileTimeStatuses($user->id);
+        $lifecycle->refreshPasarguardListStatuses($user->id);
 
         $query = Orders::where('user_id', $user->id);
 
@@ -3775,7 +3784,8 @@ $codeText
         if ($list->count() == 0) {
             $text .= "❌ موردی یافت نشد.";
         } else {
-
+            $text .= "🟢 فعال | 🟠 حجم تمام\n";
+            $text .= "🔵 زمان تمام | 🔴 لغو/غیرفعال\n\n";
             $text .= "برای مشاهده جزئیات روی سفارش کلیک کنید 👇\n\n";
         }
 
@@ -3954,14 +3964,19 @@ $codeText
         $jdf = new Jdf();
         $expireTime = $order->expire_at ? $jdf->jdate('H:i:s d-m-Y', strtotime($order->expire_at)) : 'اطلاعات یافت نشد';
 
-        try {
-            $configDetail = getConfigDetail($order);
-        } catch (\Throwable $exception) {
-            Log::warning('Could not load live order details', [
-                'order_id' => $order->id,
-                'message' => $exception->getMessage(),
-            ]);
-            $configDetail = ['status' => false];
+        if ($status['key'] === Orders::STATUS_INACTIVE) {
+            // Cancelled orders are deliberately not sent to the provider again.
+            $configDetail = ['status' => false, 'skipped_inactive' => true];
+        } else {
+            try {
+                $configDetail = getConfigDetail($order);
+            } catch (\Throwable $exception) {
+                Log::warning('Could not load live order details', [
+                    'order_id' => $order->id,
+                    'message' => $exception->getMessage(),
+                ]);
+                $configDetail = ['status' => false];
+            }
         }
         $warning = '';
         if ($configDetail['status'] ?? false) {
@@ -3977,7 +3992,9 @@ $codeText
             $totalUsed = $cached['used_gb'] ?? 'نامشخص';
             $left = $cached['left_gb'] ?? 'نامشخص';
             $code = $detail['code'] ?? null;
-            $warning = "\n⚠️ <i>اطلاعات لحظه‌ای پنل در دسترس نیست.</i>\n";
+            $warning = !empty($configDetail['skipped_inactive'])
+                ? "\nℹ️ <i>سفارش غیرفعال است؛ اطلاعات ذخیره‌شده نمایش داده شد.</i>\n"
+                : "\n⚠️ <i>اطلاعات لحظه‌ای پنل در دسترس نیست.</i>\n";
         }
 
         if ($status['key'] === Orders::STATUS_INACTIVE) {

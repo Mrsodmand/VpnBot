@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Orders;
+use App\Models\Panels;
 use App\Services\OrderLifecycleService;
 use Carbon\Carbon;
 use Illuminate\Database\Schema\Blueprint;
@@ -20,8 +21,19 @@ class OrderLifecycleServiceTest extends TestCase
             $table->id();
             $table->unsignedBigInteger('user_id');
             $table->string('status');
+            $table->unsignedBigInteger('panel_id')->nullable();
+            $table->string('uid')->nullable();
             $table->json('detail')->nullable();
             $table->timestamp('expire_at')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('panels', function (Blueprint $table) {
+            $table->id();
+            $table->string('system_type');
+            $table->string('url')->nullable();
+            $table->string('username')->nullable();
+            $table->string('password')->nullable();
             $table->timestamps();
         });
 
@@ -79,11 +91,103 @@ class OrderLifecycleServiceTest extends TestCase
         ], $query->pluck('id')->all());
     }
 
-    private function createOrder(int $userId, string $status, Carbon $expireAt): Orders
+    public function test_order_list_refreshes_pasarguard_once_and_skips_cancelled_orders(): void
+    {
+        $panelId = DB::table('panels')->insertGetId([
+            'system_type' => 'pasarguard',
+            'url' => 'https://panel.test',
+            'username' => 'admin',
+            'password' => 'secret',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $panel = Panels::findOrFail($panelId);
+
+        $cancelledPanelId = DB::table('panels')->insertGetId([
+            'system_type' => 'pasarguard',
+            'url' => 'https://cancelled-panel.test',
+            'username' => 'admin',
+            'password' => 'secret',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $active = $this->createOrder(1, Orders::STATUS_ACTIVE, now()->addDay(), $panel->id, 'pg-active');
+        $exhausted = $this->createOrder(1, Orders::STATUS_ACTIVE, now()->addDay(), $panel->id, 'pg-exhausted');
+        $disabled = $this->createOrder(1, Orders::STATUS_ACTIVE, now()->addDay(), $panel->id, 'pg-disabled');
+        $cancelled = $this->createOrder(1, Orders::STATUS_INACTIVE, now()->addDay(), $panel->id, 'pg-cancelled');
+        $cancelledOnItsOwnPanel = $this->createOrder(
+            1,
+            Orders::STATUS_INACTIVE,
+            now()->addDay(),
+            $cancelledPanelId,
+            'pg-cancelled-only'
+        );
+
+        $lifecycle = new class extends OrderLifecycleService {
+            public int $requests = 0;
+
+            protected function fetchPasarguardUsers(Panels $panel): mixed
+            {
+                $this->requests++;
+
+                return ['users' => [
+                    [
+                        'id' => 'pg-active',
+                        'status' => 'active',
+                        'data_limit' => 10_000,
+                        'used_traffic' => 1_000,
+                    ],
+                    [
+                        'id' => 'pg-exhausted',
+                        'status' => 'active',
+                        'data_limit' => 10_000,
+                        'used_traffic' => 10_000,
+                    ],
+                    [
+                        'id' => 'pg-disabled',
+                        'status' => 'disabled',
+                        'data_limit' => 10_000,
+                        'used_traffic' => 1_000,
+                    ],
+                    // If cancelled orders were not filtered, this would reactivate it.
+                    [
+                        'id' => 'pg-cancelled',
+                        'status' => 'active',
+                        'data_limit' => 10_000,
+                        'used_traffic' => 0,
+                    ],
+                ]];
+            }
+        };
+
+        $result = $lifecycle->refreshPasarguardListStatuses(1);
+
+        $this->assertSame(1, $lifecycle->requests);
+        $this->assertSame(1, $result['requests']);
+        $this->assertSame(3, $result['checked']);
+        $this->assertSame(2, $result['updated']);
+        $this->assertSame(Orders::STATUS_ACTIVE, $active->fresh()->status);
+        $this->assertSame(Orders::STATUS_DATA_EXHAUSTED, $exhausted->fresh()->status);
+        $this->assertSame(Orders::STATUS_INACTIVE, $disabled->fresh()->status);
+        $this->assertSame(Orders::STATUS_INACTIVE, $cancelled->fresh()->status);
+        $this->assertSame(Orders::STATUS_INACTIVE, $cancelledOnItsOwnPanel->fresh()->status);
+        $this->assertArrayNotHasKey('total_gb', $active->fresh()->detail['lifecycle']);
+    }
+
+    private function createOrder(
+        int $userId,
+        string $status,
+        Carbon $expireAt,
+        ?int $panelId = null,
+        ?string $uid = null
+    ): Orders
     {
         $id = DB::table('orders')->insertGetId([
             'user_id' => $userId,
             'status' => $status,
+            'panel_id' => $panelId,
+            'uid' => $uid,
             'detail' => '{}',
             'expire_at' => $expireAt,
             'created_at' => now(),
