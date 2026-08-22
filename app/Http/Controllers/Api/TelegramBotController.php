@@ -9394,8 +9394,6 @@ $codeText
 
     protected function adminCartUpdate($type = null)
     {
-        $this->updatePath('start');
-
         $user = $this->user;
 
         $key = $user->tel_detail['cart-key'];
@@ -9434,6 +9432,8 @@ $codeText
 
         Carts::where('id', $id)
             ->update([$key => $value]);
+
+        $this->updatePath('start');
 
         $text = "✅ فیلد <b>{$fields[$key]['label']}</b> با موفقیت بروزرسانی شد.";
 

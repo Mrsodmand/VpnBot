@@ -302,6 +302,64 @@ class AdminRejectCartReceiptTest extends TestCase
         );
     }
 
+    public function test_admin_can_save_a_sheba_number_from_the_card_edit_flow(): void
+    {
+        DB::table('users')->insert([
+            'id' => 1,
+            'tel_id' => '1001',
+            'first_name' => 'Admin',
+            'is_admin' => '1',
+            'is_seller' => '0',
+            'path' => 'start',
+            'status' => 1,
+        ]);
+        DB::table('carts')->insert([
+            'id' => 10,
+            'name' => 'ضیایی',
+            'cart' => '6219861437345936',
+            'sheba' => null,
+            'is_default' => 1,
+            'status' => 1,
+        ]);
+
+        $editController = new TelegramBotController(Request::create('/api/telegram-webhook', 'POST', [
+            'callback_query' => [
+                'id' => 'callback-edit-sheba',
+                'from' => ['id' => 1001, 'first_name' => 'Admin'],
+                'message' => [
+                    'message_id' => 77,
+                    'chat' => ['id' => 1001, 'type' => 'private'],
+                    'text' => 'جزئیات کارت',
+                ],
+                'data' => 'type=adminCartEdit|id=10|key=sheba',
+            ],
+        ]));
+        $editTelegram = new FakeTelegramForReceiptRejection();
+        $telegramProperty = new ReflectionProperty($editController, 'telegramSdk');
+        $telegramProperty->setValue($editController, $editTelegram);
+        $editController->index();
+
+        $saveController = new TelegramBotController(Request::create('/api/telegram-webhook', 'POST', [
+            'message' => [
+                'message_id' => 78,
+                'from' => ['id' => 1001, 'first_name' => 'Admin'],
+                'chat' => ['id' => 1001, 'type' => 'private'],
+                'text' => 'ir46 0560 6118 2800 6296 7533 01',
+            ],
+        ]));
+        $saveTelegram = new FakeTelegramForReceiptRejection();
+        $telegramProperty = new ReflectionProperty($saveController, 'telegramSdk');
+        $telegramProperty->setValue($saveController, $saveTelegram);
+        $saveController->index();
+
+        $this->assertSame(
+            'IR460560611828006296753301',
+            DB::table('carts')->where('id', 10)->value('sheba')
+        );
+        $this->assertStringContainsString('با موفقیت بروزرسانی شد', $saveTelegram->sentMessages[0]['text']);
+        $this->assertSame('start', DB::table('users')->where('id', 1)->value('path'));
+    }
+
     public function test_a_user_cannot_submit_more_than_one_receipt_for_the_same_payment(): void
     {
         DB::table('users')->insert([
