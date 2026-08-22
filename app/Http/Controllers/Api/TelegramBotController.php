@@ -989,6 +989,15 @@ class TelegramBotController extends Controller
         return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     }
 
+    private function cardShebaLine(mixed $sheba): string
+    {
+        $sheba = trim((string) $sheba);
+
+        return $sheba === ''
+            ? ''
+            : '🏦 شماره شبا: <code>' . $this->escapeHtml($sheba) . "</code>\n";
+    }
+
     private function paymentOrderRemark(Payment $payment): ?string
     {
         $detail = is_array($payment->detail)
@@ -1143,6 +1152,7 @@ class TelegramBotController extends Controller
             $text .= "🔖 کد مرجع: <code>" . $this->escapeHtml($payment->ref_id ?: '—') . "</code>\n";
             if (!empty($detail['cart-number'])) {
                 $text .= "💳 کارت مقصد: <code>" . $this->escapeHtml($detail['cart-number']) . "</code>\n";
+                $text .= $this->cardShebaLine($detail['cart-sheba'] ?? null);
             }
             if (array_key_exists('wallet_balance_before', $detail) || array_key_exists('wallet_balance_after', $detail)) {
                 $text .= "💼 موجودی: <code>" . number_format((float) ($detail['wallet_balance_before'] ?? 0))
@@ -1607,6 +1617,7 @@ class TelegramBotController extends Controller
         $payment->expired_at = Carbon::now();
         $payment->detail = [
             'cart-number' => $card->cart,
+            'cart-sheba' => $card->sheba,
             'cart-name' => $card->name,
         ];
         $payment->save();
@@ -1616,6 +1627,7 @@ class TelegramBotController extends Controller
         $tel_detail['payment-id'] = $payment->id;
         $tel_detail['payment-type'] = 'cart-be-cart';
         $tel_detail['payment-cart-number'] = $card->cart;
+        $tel_detail['payment-cart-sheba'] = $card->sheba;
         $tel_detail['payment-cart-name'] = $card->name;
 
         $user->tel_detail = $tel_detail;
@@ -1624,13 +1636,14 @@ class TelegramBotController extends Controller
 
         $rialAmount = number_format($amount * 10);
         $amount = number_format($amount);
+        $cardShebaLine = $this->cardShebaLine($card->sheba);
         $text = "🟩درخواست  شما ثبت شد!
 
 👝 مبلغ سفارش : <code>{$amount}</code> تومان
 🔘 جهت تکمیل سفارش مبلغ فاکتور را به تومان به شماره کارت زیر واریز نموده و پس از واریز تصویر فیش را در همین مرحله برای ربات ارسال نمایید :
 
 💳 <code> {$card->cart} </code>
-👤 به نام {$card->name}
+{$cardShebaLine}👤 به نام {$card->name}
 
 در هنگام انتقال، از نوشتن توضیحات انتقال حاوی کلمات یا عبارات حساس مانند «وی‌پی‌ان vpn»، «کانفیگ»، «ویتوری»، «آی‌پی ثابت» و مشابه آن خودداری کنید
 درصورت درج هر یک از این کلمات، حساب شما مسدود شده و کیف‌پول شارژ نخواهد شد
@@ -2501,10 +2514,12 @@ class TelegramBotController extends Controller
         }
 
         $cardNumber = $cart->cart ?? 'اطلاعات یافت نشد';
+        $cardSheba = $cart->sheba ?? null;
         $cardName = $cart->name ?? '—';
 
         $paymentDetail = is_array($payment->detail) ? $payment->detail : [];
         $paymentDetail['cart-number'] = $cardNumber;
+        $paymentDetail['cart-sheba'] = $cardSheba;
         $paymentDetail['cart-name'] = $cardName;
         $payment->method = 'cart-be-cart';
         $payment->detail = $paymentDetail;
@@ -2514,6 +2529,7 @@ class TelegramBotController extends Controller
         $tel_detail['payment-id'] = $payment->id;
         $tel_detail['payment-type'] = 'cart-be-cart';
         $tel_detail['payment-cart-number'] = $cardNumber;
+        $tel_detail['payment-cart-sheba'] = $cardSheba;
         $tel_detail['payment-cart-name'] = $cardName;
 
         $user->tel_detail = $tel_detail;
@@ -2528,13 +2544,14 @@ class TelegramBotController extends Controller
         $remarkText = $paymentRemark !== null
             ? "\n🏷 ریمارک سرویس: <code>" . $this->escapeHtml($paymentRemark) . "</code>"
             : '';
+        $cardShebaLine = $this->cardShebaLine($cardSheba);
         $text = "درخواست شما ثبت شد.
 👝 مبلغ سفارش : <code>{$amount}</code> تومان
 {$remarkText}
 🔘 جهت تکمیل سفارش مبلغ فاکتور را به تومان به شماره کارت زیر واریز نموده و پس از واریز تصویر فیش را در همین مرحله برای ربات ارسال نمایید :
 
 💳 <code> {$cardNumber} </code>
-👤 به نام {$cardName}
+{$cardShebaLine}👤 به نام {$cardName}
 
 در هنگام انتقال، از نوشتن توضیحات انتقال حاوی کلمات یا عبارات حساس مانند «وی‌پی‌ان vpn»، «کانفیگ»، «ویتوری»، «آی‌پی ثابت» و مشابه آن خودداری کنید
 درصورت درج هر یک از این کلمات، حساب شما مسدود شده و کیف‌پول شارژ نخواهد شد
@@ -2597,6 +2614,8 @@ class TelegramBotController extends Controller
         $telDetail['payment-type'] = 'cart-be-cart';
         $telDetail['payment-cart-number'] = $paymentDetail['cart-number']
             ?? ($samePayment ? ($telDetail['payment-cart-number'] ?? null) : null);
+        $telDetail['payment-cart-sheba'] = $paymentDetail['cart-sheba']
+            ?? ($samePayment ? ($telDetail['payment-cart-sheba'] ?? null) : null);
         $telDetail['payment-cart-name'] = $paymentDetail['cart-name']
             ?? ($samePayment ? ($telDetail['payment-cart-name'] ?? null) : null);
         $this->user->tel_detail = $telDetail;
@@ -2696,6 +2715,8 @@ class TelegramBotController extends Controller
             $detail = is_array($lockedPayment->detail) ? $lockedPayment->detail : [];
             $detail['cart-number'] = $detail['cart-number']
                 ?? ($telDetail['payment-cart-number'] ?? null);
+            $detail['cart-sheba'] = $detail['cart-sheba']
+                ?? ($telDetail['payment-cart-sheba'] ?? null);
             $detail['cart-name'] = $detail['cart-name']
                 ?? ($telDetail['payment-cart-name'] ?? null);
             $detail['value'] = $value;
@@ -2730,6 +2751,7 @@ class TelegramBotController extends Controller
 
         $paymentDetail = is_array($payment->detail) ? $payment->detail : [];
         $paymentCardNumber = $paymentDetail['cart-number'] ?? '—';
+        $paymentCardSheba = $paymentDetail['cart-sheba'] ?? null;
         $paymentCardName = $paymentDetail['cart-name'] ?? '—';
         $price = number_format($payment->price);
         $caption .= "👤 کاربر\n";
@@ -2742,6 +2764,7 @@ class TelegramBotController extends Controller
         $caption .= "اطلاعات پرداخت\n";
         $caption .= "💰 شماره تراکنش: <code>{$payment->id}</code>\n";
         $caption .= "💰 شماره کارت: <code>{$paymentCardNumber}</code>\n";
+        $caption .= $this->cardShebaLine($paymentCardSheba);
         $caption .= "👤 صاحب کارت: {$paymentCardName}\n";
         $caption .= "🧾 مبلغ تراکنش: <code>{$price}</code> تومان\n\n";
         $caption .= "رسید کاربر: \n";
@@ -2935,6 +2958,7 @@ class TelegramBotController extends Controller
         $price = number_format($payment->price);
 
         $paymentCardNumber = $payment->detail['cart-number'] ?? '—';
+        $paymentCardSheba = $payment->detail['cart-sheba'] ?? null;
         $paymentCardName = $payment->detail['cart-name'] ?? '—';
 
         /*
@@ -2967,6 +2991,7 @@ class TelegramBotController extends Controller
         $caption .= "💳 <b>اطلاعات پرداخت</b>\n";
         $caption .= "🔢 <b>شماره تراکنش:</b> <code>{$payment->id}</code>\n";
         $caption .= "💳 <b>شماره کارت:</b> <code>{$paymentCardNumber}</code>\n";
+        $caption .= $this->cardShebaLine($paymentCardSheba);
         $caption .= "👤 <b>صاحب کارت:</b> {$paymentCardName}\n";
         $caption .= "💰 <b>مبلغ:</b> <code>{$price}</code> تومان\n";
         $paymentRemark = $this->paymentOrderRemark($payment);
@@ -8965,7 +8990,7 @@ $codeText
 
         $buttons[] = [
             [
-                'text' => "شماره کارت ها",
+                'text' => "شماره کارت‌ها و شباها",
                 'callback_data' => "type=adminCartList",
             ]
         ];
@@ -9166,6 +9191,10 @@ $codeText
                 'label' => 'شماره کارت',
                 'value' => $country->cart
             ],
+            'sheba' => [
+                'label' => 'شماره شبا',
+                'value' => $country->sheba
+            ],
             'status' => [
                 'label' => 'وضعیت',
                 'value' => $country->status
@@ -9282,9 +9311,14 @@ $codeText
         $fields = [
             'name' => ['label' => 'نام صاحب حساب'],
             'cart' => ['label' => 'شماره کارت'],
+            'sheba' => ['label' => 'شماره شبا'],
             'status' => ['label' => 'وضعیت'],
             'is_default' => ['label' => 'کارت پیشفرض'],
         ];
+
+        if (!array_key_exists($key, $fields)) {
+            return $this->sendTemporaryMessage('فیلد کارت معتبر نیست');
+        }
 
         $oldValue = $country->$key ?? '—';
 
@@ -9313,6 +9347,16 @@ $codeText
 
         }
 
+        if ($key === 'sheba' && !empty($country->sheba)) {
+            $keyboard[] = [
+                [
+                    'text' => '🗑 خالی کردن شماره شبا',
+                    'callback_data' => "type=adminCartUpdate|id={$id}|clear=1",
+                    'style' => 'danger',
+                ],
+            ];
+        }
+
 
         if ($key == 'status' || $key == 'is_default') {
 
@@ -9325,6 +9369,9 @@ $codeText
 
         $text = "✏️ لطفا مقدار <b>{$fields[$key]['label']}</b> را وارد کنید\n";
         $text .= "📌 مقدار قبلی: <code>{$oldValue}</code>";
+        if ($key === 'sheba') {
+            $text .= "\nℹ️ شماره شبا اختیاری است.";
+        }
 
         /*
         |--------------------------------------------------------------------------
@@ -9358,8 +9405,13 @@ $codeText
             'name' => ['label' => 'نام صاحب کارت'],
             'status' => ['label' => 'وضعیت'],
             'cart' => ['label' => 'شماره کارت'],
+            'sheba' => ['label' => 'شماره شبا'],
             'is_default' => ['label' => 'کارت پیشفرض'],
         ];
+
+        if (!array_key_exists($key, $fields)) {
+            return $this->sendTemporaryMessage('فیلد کارت معتبر نیست');
+        }
 
         /*
         |--------------------------------------------------------------------------
@@ -9371,8 +9423,13 @@ $codeText
 
         if (in_array($key, $customFields)) {
             $value = $type['value'];
+        } elseif ($key === 'sheba' && !empty($type['clear'])) {
+            $value = null;
         } else {
-            $value = $this->text;
+            $value = trim((string) $this->text);
+            if ($key === 'sheba') {
+                $value = $value === '' ? null : strtoupper(preg_replace('/\s+/', '', $value));
+            }
         }
 
         Carts::where('id', $id)

@@ -53,6 +53,17 @@ class AdminRejectCartReceiptTest extends TestCase
             $table->timestamps();
         });
 
+        Schema::create('carts', function (Blueprint $table) {
+            $table->id();
+            $table->string('name')->nullable();
+            $table->string('cart')->nullable();
+            $table->string('sheba')->nullable();
+            $table->integer('admin_id')->nullable();
+            $table->integer('is_default')->nullable()->default(-1);
+            $table->integer('status')->nullable();
+            $table->timestamps();
+        });
+
         Schema::create('settings', function (Blueprint $table) {
             $table->id();
             $table->string('key');
@@ -105,6 +116,7 @@ class AdminRejectCartReceiptTest extends TestCase
             'status' => 0,
             'detail' => json_encode([
                 'cart-number' => '6219861437345936',
+                'cart-sheba' => 'IR820540102680020817909002',
                 'cart-name' => 'ضیایی',
             ]),
         ]);
@@ -143,6 +155,7 @@ class AdminRejectCartReceiptTest extends TestCase
         $this->assertSame('callback-1', $telegram->answeredCallbacks[0]['callback_query_id']);
         $this->assertSame($channelId, $telegram->editedCaptions[0]['chat_id']);
         $this->assertStringContainsString('تراکنش کارت به کارت رد شد', $telegram->editedCaptions[0]['caption']);
+        $this->assertStringContainsString('IR820540102680020817909002', $telegram->editedCaptions[0]['caption']);
         $this->assertSame(['inline_keyboard' => []], json_decode($telegram->editedCaptions[0]['reply_markup'], true));
         $this->assertSame('2002', (string) $telegram->sentMessages[0]['chat_id']);
         $this->assertStringContainsString('پرداخت شما تایید نشد', $telegram->sentMessages[0]['text']);
@@ -220,6 +233,75 @@ class AdminRejectCartReceiptTest extends TestCase
         $this->assertSame([], $telegram->sentMessages);
     }
 
+    public function test_cart_payment_shows_and_persists_the_optional_sheba_number(): void
+    {
+        DB::table('users')->insert([
+            'id' => 2,
+            'tel_id' => '2002',
+            'first_name' => 'Customer',
+            'is_admin' => '0',
+            'is_seller' => '0',
+            'path' => 'start',
+            'status' => 1,
+        ]);
+        DB::table('settings')->insert([
+            [
+                'key' => 'cart_be_cart_random',
+                'name' => 'Random card',
+                'value' => '0',
+            ],
+            [
+                'key' => 'support_id',
+                'name' => 'Support',
+                'value' => 'support',
+            ],
+        ]);
+        DB::table('carts')->insert([
+            'id' => 10,
+            'name' => 'ضیایی',
+            'cart' => '6219861437345936',
+            'sheba' => 'IR820540102680020817909002',
+            'is_default' => 1,
+            'status' => 1,
+        ]);
+        DB::table('payments')->insert([
+            'id' => 9475,
+            'user_id' => 2,
+            'method' => null,
+            'type' => '1',
+            'price' => 600000,
+            'status' => 0,
+            'detail' => json_encode([]),
+        ]);
+
+        $request = Request::create('/api/telegram-webhook', 'POST', [
+            'callback_query' => [
+                'id' => 'callback-payment',
+                'from' => ['id' => 2002, 'first_name' => 'Customer'],
+                'message' => [
+                    'message_id' => 77,
+                    'chat' => ['id' => 2002, 'type' => 'private'],
+                    'text' => 'پرداخت سفارش',
+                ],
+                'data' => 'type=paymentCartBeCart|id=9475',
+            ],
+        ]);
+
+        $controller = new TelegramBotController($request);
+        $telegram = new FakeTelegramForReceiptRejection();
+        $telegramProperty = new ReflectionProperty($controller, 'telegramSdk');
+        $telegramProperty->setValue($controller, $telegram);
+
+        $controller->index();
+
+        $this->assertStringContainsString('شماره شبا', $telegram->editedMessages[0]['text']);
+        $this->assertStringContainsString('IR820540102680020817909002', $telegram->editedMessages[0]['text']);
+        $this->assertSame(
+            'IR820540102680020817909002',
+            Payment::findOrFail(9475)->detail['cart-sheba']
+        );
+    }
+
     public function test_a_user_cannot_submit_more_than_one_receipt_for_the_same_payment(): void
     {
         DB::table('users')->insert([
@@ -234,6 +316,7 @@ class AdminRejectCartReceiptTest extends TestCase
                 'payment-id' => 9475,
                 'payment-type' => 'cart-be-cart',
                 'payment-cart-number' => '6219861437345936',
+                'payment-cart-sheba' => 'IR820540102680020817909002',
                 'payment-cart-name' => 'ضیایی',
             ]),
         ]);
@@ -251,6 +334,7 @@ class AdminRejectCartReceiptTest extends TestCase
             'status' => 0,
             'detail' => json_encode([
                 'cart-number' => '6219861437345936',
+                'cart-sheba' => 'IR820540102680020817909002',
                 'cart-name' => 'ضیایی',
             ]),
         ]);
@@ -266,6 +350,7 @@ class AdminRejectCartReceiptTest extends TestCase
         $this->assertNotEmpty($payment->detail['receipt_submitted_at']);
         $this->assertCount(1, $firstTelegram->sentPhotos);
         $this->assertSame(-1001234567890, (int) $firstTelegram->sentPhotos[0]['chat_id']);
+        $this->assertStringContainsString('IR820540102680020817909002', $firstTelegram->sentPhotos[0]['caption']);
         $this->assertSame('sendCartBeCartReceipt', DB::table('users')->where('id', 2)->value('path'));
 
         $secondController = new TelegramBotController($this->receiptPhotoRequest('receipt-2'));
@@ -301,6 +386,7 @@ class FakeTelegramForReceiptRejection extends Telegram
 {
     public array $answeredCallbacks = [];
     public array $editedCaptions = [];
+    public array $editedMessages = [];
     public array $sentMessages = [];
     public array $sentPhotos = [];
     public array $downloadedFiles = [];
@@ -321,6 +407,13 @@ class FakeTelegramForReceiptRejection extends Telegram
         $this->editedCaptions[] = $params;
 
         return ['ok' => true];
+    }
+
+    public function editMessage(array $params)
+    {
+        $this->editedMessages[] = $params;
+
+        return ['ok' => true, 'result' => ['message_id' => $params['message_id'] ?? 1]];
     }
 
     public function sendMessage(array $params)

@@ -1040,7 +1040,7 @@ class WpSyncService
             'panels' => [$this->searchQuery(Panels::query(), $search, ['name', 'url', 'system_type', 'id'])->orderByDesc('id'), fn ($i) => $this->formatPanel($i)],
             'inbounds' => [$this->searchQuery(Inbounds::query(), $search, ['remark', 'port', 'id'])->orderByDesc('id'), fn ($i) => $this->formatInbound($i)],
             'extra_bandwidths' => [$this->searchQuery(ExtraBandwidth::query(), $search, ['name', 'type', 'id'])->orderByDesc('id'), fn ($i) => ['id' => $i->id, 'name' => $i->name, 'type' => $i->type, 'status' => (string) $i->status, 'discount' => (int) $i->discount]],
-            'carts' => [$this->searchQuery(Carts::query(), $search, ['name', 'cart', 'id'])->orderByDesc('id'), fn ($i) => ['id' => $i->id, 'name' => $i->name, 'cart' => $i->cart, 'status' => (string) $i->status, 'is_default' => (int) $i->is_default]],
+            'carts' => [$this->searchQuery(Carts::query(), $search, ['name', 'cart', 'sheba', 'id'])->orderByDesc('id'), fn ($i) => ['id' => $i->id, 'name' => $i->name, 'cart' => $i->cart, 'sheba' => $i->sheba, 'status' => (string) $i->status, 'is_default' => (int) $i->is_default]],
             'settings' => [$this->searchQuery(Setting::query(), $search, ['key', 'name', 'value'])->orderBy('id'), fn ($i) => ['id' => $i->id, 'key' => $i->key, 'name' => $i->name, 'value' => $i->value]],
             'links' => [$this->tableQuery('wp_sync_links', $search, ['phone', 'tel_id', 'site_user_id'])->orderByDesc('id'), fn ($i) => (array) $i],
             'site_orders' => [$this->tableQuery('wp_sync_site_orders', $search, ['phone', 'order_code', 'site_order_id', 'bot_order_id'])->orderByDesc('id'), fn ($i) => (array) $i],
