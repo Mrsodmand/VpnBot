@@ -91,6 +91,27 @@ class OrderLifecycleServiceTest extends TestCase
         ], $query->pluck('id')->all());
     }
 
+    public function test_opening_an_expired_legacy_inactive_order_restores_renewal_status(): void
+    {
+        $order = $this->createOrder(1, Orders::STATUS_INACTIVE, now()->subDay());
+        $lifecycle = app(OrderLifecycleService::class);
+
+        $lifecycle->applyConfigDetail($order, [
+            'status' => true,
+            'data' => [
+                'remote_available' => true,
+                'provider_status' => 'expired',
+                'expire' => now()->subDay()->toISOString(),
+                'totalGb' => 40,
+                'totalUsed' => 36.37,
+                'left' => 3.63,
+            ],
+        ]);
+
+        $this->assertSame(Orders::STATUS_SUSPENDED, $order->fresh()->status);
+        $this->assertTrue($lifecycle->canRenew($order->fresh()));
+    }
+
     public function test_order_list_refreshes_pasarguard_once_and_skips_cancelled_orders(): void
     {
         $panelId = DB::table('panels')->insertGetId([
@@ -115,6 +136,7 @@ class OrderLifecycleServiceTest extends TestCase
         $active = $this->createOrder(1, Orders::STATUS_ACTIVE, now()->addDay(), $panel->id, 'pg-active');
         $exhausted = $this->createOrder(1, Orders::STATUS_ACTIVE, now()->addDay(), $panel->id, 'pg-exhausted');
         $disabled = $this->createOrder(1, Orders::STATUS_ACTIVE, now()->addDay(), $panel->id, 'pg-disabled');
+        $expired = $this->createOrder(1, Orders::STATUS_INACTIVE, now()->subDay(), $panel->id, 'pg-expired');
         $cancelled = $this->createOrder(1, Orders::STATUS_INACTIVE, now()->addDay(), $panel->id, 'pg-cancelled');
         $cancelledOnItsOwnPanel = $this->createOrder(
             1,
@@ -123,6 +145,16 @@ class OrderLifecycleServiceTest extends TestCase
             $cancelledPanelId,
             'pg-cancelled-only'
         );
+        foreach ([$cancelled, $cancelledOnItsOwnPanel] as $cancelledOrder) {
+            $cancelledOrder->detail = [
+                'lifecycle' => [
+                    'remote_disabled' => true,
+                    'cancelled_at' => now()->subHour()->toDateTimeString(),
+                    'provider_status' => 'disabled',
+                ],
+            ];
+            $cancelledOrder->save();
+        }
 
         $lifecycle = new class extends OrderLifecycleService {
             public int $requests = 0;
@@ -150,6 +182,13 @@ class OrderLifecycleServiceTest extends TestCase
                         'data_limit' => 10_000,
                         'used_traffic' => 1_000,
                     ],
+                    [
+                        'id' => 'pg-expired',
+                        'status' => 'expired',
+                        'expire' => now()->subDay()->toISOString(),
+                        'data_limit' => 10_000,
+                        'used_traffic' => 9_000,
+                    ],
                     // If cancelled orders were not filtered, this would reactivate it.
                     [
                         'id' => 'pg-cancelled',
@@ -165,11 +204,13 @@ class OrderLifecycleServiceTest extends TestCase
 
         $this->assertSame(1, $lifecycle->requests);
         $this->assertSame(1, $result['requests']);
-        $this->assertSame(3, $result['checked']);
-        $this->assertSame(2, $result['updated']);
+        $this->assertSame(4, $result['checked']);
+        $this->assertSame(3, $result['updated']);
         $this->assertSame(Orders::STATUS_ACTIVE, $active->fresh()->status);
         $this->assertSame(Orders::STATUS_DATA_EXHAUSTED, $exhausted->fresh()->status);
         $this->assertSame(Orders::STATUS_INACTIVE, $disabled->fresh()->status);
+        $this->assertSame(Orders::STATUS_SUSPENDED, $expired->fresh()->status);
+        $this->assertTrue($lifecycle->canRenew($expired->fresh()));
         $this->assertSame(Orders::STATUS_INACTIVE, $cancelled->fresh()->status);
         $this->assertSame(Orders::STATUS_INACTIVE, $cancelledOnItsOwnPanel->fresh()->status);
         $this->assertArrayNotHasKey('total_gb', $active->fresh()->detail['lifecycle']);

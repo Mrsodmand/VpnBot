@@ -1010,7 +1010,9 @@ function getConfigDetail($order)
         $expire = optional($order->expire_at)->format('Y-m-d H:i:s');
         if (!empty($result['expire'])) {
             try {
-                $expire = Carbon::parse($result['expire'])->format('Y-m-d H:i:s');
+                $expire = Carbon::parse($result['expire'])
+                    ->timezone(config('app.timezone'))
+                    ->format('Y-m-d H:i:s');
             } catch (Throwable) {
                 // Keep the local expiry when the provider returns an invalid date.
             }

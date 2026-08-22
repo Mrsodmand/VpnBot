@@ -51,7 +51,7 @@ class OrderLifecycleService
         $now ??= now();
         $expireAt = $order->expire_at ? Carbon::parse($order->expire_at) : null;
 
-        if (!$expireAt || $this->isInactiveStatus($order->status)) {
+        if (!$expireAt || $this->shouldSkipProviderRefresh($order)) {
             return $order;
         }
 
@@ -94,14 +94,23 @@ class OrderLifecycleService
      */
     public function applyConfigDetail(Orders $order, array $configDetail): Orders
     {
-        $this->refreshTimeStatus($order);
-        $status = $this->normalizeStatus($order->status);
-
         if (!($configDetail['status'] ?? false) || !($configDetail['data']['remote_available'] ?? false)) {
             return $order;
         }
 
+        if ($this->shouldSkipProviderRefresh($order)) {
+            return $order;
+        }
+
         $data = $configDetail['data'];
+        if (!empty($data['expire'])) {
+            try {
+                $order->expire_at = Carbon::parse($data['expire'])->timezone(config('app.timezone'));
+            } catch (Throwable) {
+                // Keep the valid local expiry when the provider value is invalid.
+            }
+        }
+
         $detail = is_array($order->detail) ? $order->detail : [];
         $lifecycleDetail = is_array($detail['lifecycle'] ?? null) ? $detail['lifecycle'] : [];
         $detail['lifecycle'] = array_merge($lifecycleDetail, [
@@ -112,20 +121,35 @@ class OrderLifecycleService
             'provider_status' => $data['provider_status'] ?? null,
         ]);
 
-        if ($status !== Orders::STATUS_SUSPENDED && $status !== Orders::STATUS_INACTIVE) {
-            if ($this->providerIsInactive($data['provider_status'] ?? null)) {
-                $order->status = Orders::STATUS_INACTIVE;
-            } elseif (is_numeric($data['left'] ?? null) && (float) $data['left'] <= 0) {
-                $order->status = Orders::STATUS_DATA_EXHAUSTED;
-            } else {
-                $order->status = Orders::STATUS_ACTIVE;
-            }
-        }
+        $order->status = $this->resolveProviderOrderStatus(
+            $order,
+            $data['provider_status'] ?? null,
+            is_numeric($data['left'] ?? null) && (float) $data['left'] <= 0
+        );
 
         $order->detail = $detail;
         $order->save();
 
         return $order;
+    }
+
+    /**
+     * Only a confirmed cancellation may suppress a provider request. The plain
+     * `inactive` value is intentionally not enough: older code also used it for
+     * expired orders that are still renewable.
+     */
+    public function shouldSkipProviderRefresh(Orders $order): bool
+    {
+        if (in_array((string) $order->status, ['cancelled', 'disabled', 'deleted', '-1', '-2'], true)) {
+            return true;
+        }
+
+        $detail = is_array($order->detail) ? $order->detail : [];
+        $lifecycle = is_array($detail['lifecycle'] ?? null) ? $detail['lifecycle'] : [];
+
+        return ($lifecycle['remote_disabled'] ?? false) === true
+            || !empty($lifecycle['cancelled_at'])
+            || $this->providerIsInactive($lifecycle['provider_status'] ?? null);
     }
 
     public function statusMeta(Orders $order, ?Carbon $now = null): array
@@ -153,7 +177,7 @@ class OrderLifecycleService
      * Refresh the statuses shown in a customer's order list.
      *
      * PasarGuard is queried once per panel (not once per order), and panels that
-     * only contain cancelled/inactive orders are never queried.
+     * only contain confirmed cancelled orders are never queried.
      */
     public function refreshPasarguardListStatuses(int $userId): array
     {
@@ -172,7 +196,7 @@ class OrderLifecycleService
             ->whereIn('panel_id', $panelIds)
             ->whereNotNull('uid')
             ->get()
-            ->reject(fn (Orders $order) => $this->normalizeStatus($order->status) === Orders::STATUS_INACTIVE)
+            ->reject(fn (Orders $order) => $this->shouldSkipProviderRefresh($order))
             ->groupBy('panel_id');
 
         if ($ordersByPanel->isEmpty()) {
@@ -286,27 +310,17 @@ class OrderLifecycleService
     {
         if (!empty($remoteUser['expire'])) {
             try {
-                $order->expire_at = Carbon::parse($remoteUser['expire']);
+                $order->expire_at = Carbon::parse($remoteUser['expire'])->timezone(config('app.timezone'));
             } catch (Throwable) {
                 // An invalid remote expiry must not erase the valid local value.
             }
         }
 
-        $this->refreshTimeStatus($order);
-        $timeStatus = $this->normalizeStatus($order->status);
-        $providerStatus = strtolower((string) ($remoteUser['status'] ?? ''));
-
-        if ($this->providerIsInactive($providerStatus)) {
-            $order->status = Orders::STATUS_INACTIVE;
-        } elseif (in_array($timeStatus, [Orders::STATUS_SUSPENDED, Orders::STATUS_INACTIVE], true)) {
-            $order->status = $timeStatus;
-        } elseif (in_array($providerStatus, ['suspended', 'expired', 'on_hold'], true)) {
-            $order->status = Orders::STATUS_SUSPENDED;
-        } elseif ($providerStatus === 'limited' || $this->pasarguardDataIsExhausted($remoteUser)) {
-            $order->status = Orders::STATUS_DATA_EXHAUSTED;
-        } else {
-            $order->status = Orders::STATUS_ACTIVE;
-        }
+        $order->status = $this->resolveProviderOrderStatus(
+            $order,
+            $remoteUser['status'] ?? null,
+            $this->pasarguardDataIsExhausted($remoteUser)
+        );
 
         $detail = is_array($order->detail) ? $order->detail : [];
         $lifecycleDetail = is_array($detail['lifecycle'] ?? null) ? $detail['lifecycle'] : [];
@@ -316,6 +330,51 @@ class OrderLifecycleService
         ]);
         $order->detail = $detail;
         $order->save();
+    }
+
+    private function resolveProviderOrderStatus(
+        Orders $order,
+        mixed $providerStatus,
+        bool $dataIsExhausted
+    ): string
+    {
+        $providerStatus = strtolower(trim((string) $providerStatus));
+
+        if ($this->providerIsInactive($providerStatus)) {
+            return Orders::STATUS_INACTIVE;
+        }
+
+        if (in_array($providerStatus, ['suspended', 'expired', 'on_hold'], true)) {
+            return $this->expiryStatus($order) === Orders::STATUS_INACTIVE
+                ? Orders::STATUS_INACTIVE
+                : Orders::STATUS_SUSPENDED;
+        }
+
+        if ($providerStatus === 'limited' || $dataIsExhausted) {
+            return Orders::STATUS_DATA_EXHAUSTED;
+        }
+
+        if (in_array($providerStatus, ['active', 'created', '1'], true)) {
+            return Orders::STATUS_ACTIVE;
+        }
+
+        return $this->expiryStatus($order) ?? $this->normalizeStatus($order->status);
+    }
+
+    private function expiryStatus(Orders $order, ?Carbon $now = null): ?string
+    {
+        if (!$order->expire_at) {
+            return null;
+        }
+
+        $now ??= now();
+        $expireAt = Carbon::parse($order->expire_at);
+
+        if ($expireAt->copy()->addDays(self::RENEWAL_GRACE_DAYS)->lte($now)) {
+            return Orders::STATUS_INACTIVE;
+        }
+
+        return $expireAt->lte($now) ? Orders::STATUS_SUSPENDED : null;
     }
 
     private function pasarguardDataIsExhausted(array $remoteUser): bool
@@ -460,11 +519,6 @@ class OrderLifecycleService
             '2', 'suspended', 'expired', 'on_hold' => Orders::STATUS_SUSPENDED,
             default => Orders::STATUS_INACTIVE,
         };
-    }
-
-    private function isInactiveStatus(mixed $status): bool
-    {
-        return in_array((string) $status, self::INACTIVE_VALUES, true);
     }
 
     private function providerIsInactive(mixed $status): bool

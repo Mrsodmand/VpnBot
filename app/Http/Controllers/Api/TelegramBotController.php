@@ -3875,9 +3875,6 @@ $codeText
             ]);
         }
 
-        $detail = is_array($order->detail)
-            ? $order->detail
-            : (json_decode($order->detail, true) ?: []);
         $panel = Panels::find($order->panel_id);
 
         if (is_null($panel)) {
@@ -3890,6 +3887,29 @@ $codeText
 
         $lifecycle = app(OrderLifecycleService::class);
         $lifecycle->refreshTimeStatus($order);
+
+        if ($lifecycle->shouldSkipProviderRefresh($order)) {
+            $configDetail = ['status' => false, 'skipped_cancelled' => true];
+        } else {
+            try {
+                $configDetail = getConfigDetail($order);
+            } catch (\Throwable $exception) {
+                Log::warning('Could not load live order details', [
+                    'order_id' => $order->id,
+                    'message' => $exception->getMessage(),
+                ]);
+                $configDetail = ['status' => false];
+            }
+        }
+
+        if ($configDetail['status'] ?? false) {
+            $lifecycle->applyConfigDetail($order, $configDetail);
+            $order = $order->fresh();
+        }
+
+        $detail = is_array($order->detail)
+            ? $order->detail
+            : (json_decode($order->detail, true) ?: []);
         $canRenew = $lifecycle->canRenew($order);
         $status = $lifecycle->statusMeta($order);
 
@@ -3964,24 +3984,8 @@ $codeText
         $jdf = new Jdf();
         $expireTime = $order->expire_at ? $jdf->jdate('H:i:s d-m-Y', strtotime($order->expire_at)) : 'اطلاعات یافت نشد';
 
-        if ($status['key'] === Orders::STATUS_INACTIVE) {
-            // Cancelled orders are deliberately not sent to the provider again.
-            $configDetail = ['status' => false, 'skipped_inactive' => true];
-        } else {
-            try {
-                $configDetail = getConfigDetail($order);
-            } catch (\Throwable $exception) {
-                Log::warning('Could not load live order details', [
-                    'order_id' => $order->id,
-                    'message' => $exception->getMessage(),
-                ]);
-                $configDetail = ['status' => false];
-            }
-        }
         $warning = '';
         if ($configDetail['status'] ?? false) {
-            $lifecycle->applyConfigDetail($order, $configDetail);
-            $status = $lifecycle->statusMeta($order->fresh());
             $totalGb = $configDetail['data']['totalGb'];
             $totalUsed = $configDetail['data']['totalUsed'];
             $left = $configDetail['data']['left'];
@@ -3992,7 +3996,7 @@ $codeText
             $totalUsed = $cached['used_gb'] ?? 'نامشخص';
             $left = $cached['left_gb'] ?? 'نامشخص';
             $code = $detail['code'] ?? null;
-            $warning = !empty($configDetail['skipped_inactive'])
+            $warning = !empty($configDetail['skipped_cancelled'])
                 ? "\nℹ️ <i>سفارش غیرفعال است؛ اطلاعات ذخیره‌شده نمایش داده شد.</i>\n"
                 : "\n⚠️ <i>اطلاعات لحظه‌ای پنل در دسترس نیست.</i>\n";
         }
@@ -11905,7 +11909,20 @@ $codeText
 
         $jdf = new Jdf();
 
-        $configDetail = getConfigDetail($order);
+        if ($lifecycle->shouldSkipProviderRefresh($order)) {
+            $configDetail = ['status' => false];
+        } else {
+            try {
+                $configDetail = getConfigDetail($order);
+            } catch (\Throwable $exception) {
+                Log::warning('Could not load live admin order details', [
+                    'order_id' => $order->id,
+                    'message' => $exception->getMessage(),
+                ]);
+                $configDetail = ['status' => false];
+            }
+        }
+
         if ($configDetail['status'] ?? false) {
             $lifecycle->applyConfigDetail($order, $configDetail);
             $totalGb = $configDetail['data']['totalGb'];
