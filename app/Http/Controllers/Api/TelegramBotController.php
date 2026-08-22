@@ -999,6 +999,15 @@ class TelegramBotController extends Controller
             : '🏦 شماره شبا: <code>' . $this->escapeHtml($sheba) . "</code>\n";
     }
 
+    private function cardNumberLine(mixed $cardNumber): string
+    {
+        $cardNumber = trim((string) $cardNumber);
+
+        return $cardNumber === ''
+            ? ''
+            : '💳 شماره کارت: <code>' . $this->escapeHtml($cardNumber) . "</code>\n";
+    }
+
     private function paymentOrderRemark(Payment $payment): ?string
     {
         $detail = is_array($payment->detail)
@@ -1152,7 +1161,7 @@ class TelegramBotController extends Controller
             $text .= "👨‍💻 شناسه ادمین: <code>" . ($payment->admin_id ?: '—') . "</code>\n";
             $text .= "🔖 کد مرجع: <code>" . $this->escapeHtml($payment->ref_id ?: '—') . "</code>\n";
             if (!empty($detail['cart-number'])) {
-                $text .= "💳 کارت مقصد: <code>" . $this->escapeHtml($detail['cart-number']) . "</code>\n";
+                $text .= $this->cardNumberLine($detail['cart-number']);
                 $text .= $this->cardShebaLine($detail['cart-sheba'] ?? null);
             }
             if (array_key_exists('wallet_balance_before', $detail) || array_key_exists('wallet_balance_after', $detail)) {
@@ -1637,14 +1646,14 @@ class TelegramBotController extends Controller
 
         $rialAmount = number_format($amount * 10);
         $amount = number_format($amount);
+        $cardNumberLine = $this->cardNumberLine($card->cart);
         $cardShebaLine = $this->cardShebaLine($card->sheba);
         $text = "🟩درخواست  شما ثبت شد!
 
 👝 مبلغ سفارش : <code>{$amount}</code> تومان
 🔘 جهت تکمیل سفارش مبلغ فاکتور را به تومان به شماره کارت زیر واریز نموده و پس از واریز تصویر فیش را در همین مرحله برای ربات ارسال نمایید :
 
-💳 <code> {$card->cart} </code>
-{$cardShebaLine}👤 به نام {$card->name}
+{$cardNumberLine}{$cardShebaLine}👤 به نام {$card->name}
 
 در هنگام انتقال، از نوشتن توضیحات انتقال حاوی کلمات یا عبارات حساس مانند «وی‌پی‌ان vpn»، «کانفیگ»، «ویتوری»، «آی‌پی ثابت» و مشابه آن خودداری کنید
 درصورت درج هر یک از این کلمات، حساب شما مسدود شده و کیف‌پول شارژ نخواهد شد
@@ -2545,14 +2554,14 @@ class TelegramBotController extends Controller
         $remarkText = $paymentRemark !== null
             ? "\n🏷 ریمارک سرویس: <code>" . $this->escapeHtml($paymentRemark) . "</code>"
             : '';
+        $cardNumberLine = $this->cardNumberLine($cardNumber);
         $cardShebaLine = $this->cardShebaLine($cardSheba);
         $text = "درخواست شما ثبت شد.
 👝 مبلغ سفارش : <code>{$amount}</code> تومان
 {$remarkText}
 🔘 جهت تکمیل سفارش مبلغ فاکتور را به تومان به شماره کارت زیر واریز نموده و پس از واریز تصویر فیش را در همین مرحله برای ربات ارسال نمایید :
 
-💳 <code> {$cardNumber} </code>
-{$cardShebaLine}👤 به نام {$cardName}
+{$cardNumberLine}{$cardShebaLine}👤 به نام {$cardName}
 
 در هنگام انتقال، از نوشتن توضیحات انتقال حاوی کلمات یا عبارات حساس مانند «وی‌پی‌ان vpn»، «کانفیگ»، «ویتوری»، «آی‌پی ثابت» و مشابه آن خودداری کنید
 درصورت درج هر یک از این کلمات، حساب شما مسدود شده و کیف‌پول شارژ نخواهد شد
@@ -2764,7 +2773,7 @@ class TelegramBotController extends Controller
         $caption .= " آیدی: <code>{$user->tel_id}</code>\n\n";
         $caption .= "اطلاعات پرداخت\n";
         $caption .= "💰 شماره تراکنش: <code>{$payment->id}</code>\n";
-        $caption .= "💰 شماره کارت: <code>{$paymentCardNumber}</code>\n";
+        $caption .= $this->cardNumberLine($paymentCardNumber);
         $caption .= $this->cardShebaLine($paymentCardSheba);
         $caption .= "👤 صاحب کارت: {$paymentCardName}\n";
         $caption .= "🧾 مبلغ تراکنش: <code>{$price}</code> تومان\n\n";
@@ -2991,7 +3000,7 @@ class TelegramBotController extends Controller
 
         $caption .= "💳 <b>اطلاعات پرداخت</b>\n";
         $caption .= "🔢 <b>شماره تراکنش:</b> <code>{$payment->id}</code>\n";
-        $caption .= "💳 <b>شماره کارت:</b> <code>{$paymentCardNumber}</code>\n";
+        $caption .= $this->cardNumberLine($paymentCardNumber);
         $caption .= $this->cardShebaLine($paymentCardSheba);
         $caption .= "👤 <b>صاحب کارت:</b> {$paymentCardName}\n";
         $caption .= "💰 <b>مبلغ:</b> <code>{$price}</code> تومان\n";

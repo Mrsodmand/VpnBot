@@ -294,6 +294,10 @@ class AdminRejectCartReceiptTest extends TestCase
 
         $controller->index();
 
+        $this->assertStringContainsString(
+            '💳 شماره کارت: <code>6219861437345936</code>',
+            $telegram->editedMessages[0]['text']
+        );
         $this->assertStringContainsString('شماره شبا', $telegram->editedMessages[0]['text']);
         $this->assertStringContainsString('IR820540102680020817909002', $telegram->editedMessages[0]['text']);
         $this->assertSame(
